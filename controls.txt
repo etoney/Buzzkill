@@ -40,7 +40,6 @@ THE DISPLAY
   IN              What comes in (grey).
   OUT             What gets through (teal).
   LEARNED NOISE   BuzzKill's picture of your amp's noise (red shading).
-  HUM LINES       Red ticks along the top: hum harmonics being cancelled.
 
   STATUS          LISTENING   learning the noise (first second or so)
                   PLAYING     gate open: your signal passes untouched
