@@ -1,0 +1,49 @@
+name: Build BuzzKill
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release --target BuzzKill_VST3 BuzzKill_Standalone
+      - name: Build AU (macOS)
+        if: runner.os == 'macOS'
+        run: cmake --build build --config Release --target BuzzKill_AU
+      - name: GUI snapshot (macOS)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          cmake --build build --config Release --target BuzzKillSnapshot
+          "$(find build -type f -name BuzzKillSnapshot -perm -u+x | head -1)" "$PWD/gui.png"
+          mkdir -p /tmp/shot && cp gui.png gui_silent.png /tmp/shot/ 2>/dev/null || cp gui.png /tmp/shot/
+          cd /tmp/shot && git init -q -b screenshots && git add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "GUI snapshot for ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" screenshots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BuzzKill-${{ runner.os }}
+          path: |
+            readme.txt
+            controls.txt
+            LICENSE.txt
+            THIRD-PARTY-NOTICES.txt
+            build/BuzzKill_artefacts/Release/VST3
+            build/BuzzKill_artefacts/Release/AU
+            build/BuzzKill_artefacts/Release/Standalone

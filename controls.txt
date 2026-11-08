@@ -1,0 +1,74 @@
+===============================================================================
+  BUZZKILL  //  CONTROLS QUICK REFERENCE
+  Castle Danger Music Company
+===============================================================================
+
+BuzzKill needs no setup. Put it FIRST on your guitar track (before reverb or
+delay), press play, and let it hear a second of your amp with nobody playing.
+It learns the noise by itself and keeps re-learning as the song goes.
+
+Tip: the start of a take (before you play) is usually all it needs. If you
+start playing on the very first beat, it learns at the first gap instead and
+passes the audio untouched until then.
+
+
+-------------------------------------------------------------------------------
+WHAT IT DOES ON ITS OWN
+-------------------------------------------------------------------------------
+  NOISE FLOOR    Finds the quietest steady level of your track (amp hiss,
+                 buzz, hum) and learns its "fingerprint" across the spectrum.
+                 A note dying away is never mistaken for noise, because it
+                 keeps falling. Noise holds still.
+
+  HUM            Detects mains hum (50 Hz or 60 Hz) and its harmonics, tracks
+                 the exact frequency (it drifts slightly), and cancels each
+                 hum line with an inverted copy. Hum is removed even WHILE you
+                 play, and notes that sit right next to a hum line are left
+                 alone.
+
+  SUSTAIN        Instead of one gate slamming shut on the whole signal, every
+                 frequency band opens and closes on its own. As a note decays,
+                 its harmonics stay for as long as they are above the noise,
+                 while the hiss between them is removed. When nothing is left
+                 above the noise, the track goes to true silence.
+
+
+-------------------------------------------------------------------------------
+THE DISPLAY
+-------------------------------------------------------------------------------
+  IN              What comes in (grey).
+  OUT             What gets through (teal).
+  LEARNED NOISE   BuzzKill's picture of your amp's noise (red shading).
+  HUM LINES       Red ticks along the top: hum harmonics being cancelled.
+
+  STATUS          LISTENING   learning the noise (first second or so)
+                  PLAYING     notes present; noise removed around them
+                  LETTING GO  following a note's tail down into the noise
+                  BUZZ KILLED nothing playing; silence
+
+  NOISE FLOOR     The learned noise level in dBFS.
+  HUM             Detected mains frequency and how many hum lines are locked.
+  NOISE CUT       How far the noise is being turned down right now.
+
+
+-------------------------------------------------------------------------------
+CONTROLS (all optional)
+-------------------------------------------------------------------------------
+  RELEASE (Natural <-> Tight)
+      How a note is let go once it sinks into the noise.
+      Natural  long, gentle tails. Best for clean tones, chords, ambient
+               playing and solos where you want every bit of sustain.
+      Tight    fast cut. Best for high-gain rhythm and palm-mute chugs where
+               the gaps should be dead silent instantly.
+      Default is 35% (leaning natural). Double-click the knob to reset.
+
+  MODE
+      STUDIO   ~43 ms latency, longest sustain. For recorded tracks: your DAW
+               compensates the delay automatically. (Default.)
+      LIVE     ~11 ms latency. For playing through the plugin while you
+               monitor. Sustain is slightly shorter.
+      Switching modes re-learns the noise (about a second).
+
+  HEAR REMOVED
+      Plays ONLY what BuzzKill is taking out. You should hear hiss, buzz and
+      hum, and none of your guitar. Turn it off when you're done checking.

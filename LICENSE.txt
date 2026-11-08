@@ -1,0 +1,55 @@
+===============================================================================
+  BUZZKILL - END USER LICENSE
+  Castle Danger Music Company
+===============================================================================
+
+BUZZKILL (the "Software") is provided free of charge by Castle Danger Music
+Company ("we", "us"). By installing or using the Software you agree to these
+terms. Our full Terms of Use are at https://castledangermusic.com/terms
+
+1. LICENSE
+   We grant you a personal, non-exclusive, non-transferable, revocable license
+   to install and use the Software on your own devices.
+
+2. YOUR MUSIC IS YOURS
+   You may use audio you process with the Software in your own personal and
+   commercial music and audio projects.
+
+3. RESTRICTIONS
+   You may not sell, rent, redistribute or re-host the Software files, or
+   reverse engineer them except where the law allows. Please share the link
+   to our download page instead: https://castledangermusic.com/vst
+
+4. BETA SOFTWARE
+   The Software is a beta release under active development. Features and
+   processing may change between versions, and you may encounter bugs.
+   Save your projects frequently.
+
+5. UNSIGNED SOFTWARE
+   The Software is not code-signed, and the macOS version has not been
+   notarized by Apple. It must be installed manually by following readme.txt.
+   You install and run it at your own risk.
+
+6. THIRD-PARTY COMPONENTS
+   The Software includes third-party components provided under their own
+   license terms. See THIRD-PARTY-NOTICES.txt.
+
+7. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
+
+8. LIMITATION OF LIABILITY
+   TO THE FULLEST EXTENT ALLOWED BY LAW, CASTLE DANGER MUSIC COMPANY WILL NOT
+   BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR PUNITIVE
+   DAMAGES, OR FOR ANY LOSS OF DATA, PROJECTS, PROFITS OR REVENUE, ARISING
+   FROM THE USE OF OR INABILITY TO USE THE SOFTWARE.
+
+9. TRADEMARKS
+   VST is a registered trademark of Steinberg Media Technologies GmbH.
+   Audio Units, Mac and macOS are trademarks of Apple Inc. Windows is a
+   trademark of Microsoft Corporation. Use of these names does not imply
+   endorsement.
+
+Questions: danger@castledangermusic.com
+(c) 2026 Castle Danger Music Company. All rights reserved.
