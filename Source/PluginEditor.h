@@ -29,7 +29,7 @@ private:
     int bins = 0;
     double mainsHz = 0;
     int humLines = 0;
-    unsigned humMask = 0;
+    std::uint64_t humMask = 0;
 };
 
 class BuzzKillEditor : public juce::AudioProcessorEditor, private juce::Timer
@@ -50,7 +50,7 @@ private:
     BuzzKillLookAndFeel lnf;
     SpectrumView spectrum;
     juce::Slider release { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox };
-    juce::TextButton listenButton { "HEAR REMOVED" };
+    juce::TextButton listenButton { "HEAR REMOVED" }, relearnButton { "RELEARN" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> releaseAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> listenAtt;
     juce::Image background;

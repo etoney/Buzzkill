@@ -24,7 +24,7 @@ int main (int argc, char** argv)
         BuzzKillProcessor proc;
         proc.setPlayConfigDetails (2, 2, sr, bs);
         proc.prepareToPlay (sr, bs);
-        check (proc.getLatencySamples() == 512, "reports 512 samples (~11 ms) latency at 48 kHz");
+        check (proc.getLatencySamples() == 240, "reports 240 samples (5 ms look-ahead) latency at 48 kHz");
 
         std::unique_ptr<BuzzKillEditor> ed (dynamic_cast<BuzzKillEditor*> (proc.createEditor()));
         juce::AudioBuffer<float> buf (2, bs);
@@ -63,6 +63,13 @@ int main (int argc, char** argv)
         std::printf ("gap reduction: %.1f dB, mains %.3f Hz, %d hum lines, state %d\n", red, proc.telemetry().mainsHz.load(), proc.telemetry().humLines.load(), proc.telemetry().state.load());
         check (red > 40.0f, "gap noise reduced by more than 40 dB");
         check (std::abs (proc.telemetry().mainsHz.load() - 60.01f) < 0.02f, "mains hum locked to 60.01 Hz");
+
+        // Relearn: forgets the noise, then is learned and silent again within a second of quiet
+        proc.relearn();
+        run (0.05, false, false);
+        check (proc.telemetry().state.load() == 0, "relearn starts listening again");
+        run (1.2, false, false);
+        check (proc.telemetry().state.load() == 3, "relearned and silent within ~1 s");
 
         // state round trip
         auto* rel = proc.apvts.getParameter ("release");

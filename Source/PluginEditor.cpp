@@ -236,15 +236,15 @@ void SpectrumView::paint (juce::Graphics& g)
 
     // hum lines being cancelled
     if (mainsHz > 0 && humLines > 0)
-        for (int k = 1; k * mainsHz < 1000.0 && k <= 32; ++k)
+        for (int k = 1; k * mainsHz < 2600.0 && k <= 64; ++k)
         {
-            if (! (humMask & (1u << (k - 1)))) continue;
+            if (! (humMask & (std::uint64_t (1) << (k - 1)))) continue;
             const float x = xForHz ((float) (k * mainsHz));
             g.setColour (pal::hum.withAlpha (0.8f)); g.fillRect (x - 0.75f, 4.0f, 1.5f, 9.0f);
         }
 
     // legend
-    auto leg = juce::Rectangle<float> (w - 330, 6, 320, 14);
+    auto leg = juce::Rectangle<float> (w - 330, 18, 320, 14);
     auto item = [&] (juce::Colour c, const juce::String& text, float width)
     {
         auto r = leg.removeFromLeft (width);
@@ -272,6 +272,10 @@ BuzzKillEditor::BuzzKillEditor (BuzzKillProcessor& p)
     release.setDoubleClickReturnValue (true, 0.35);
     releaseAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, "release", release);
 
+    addAndMakeVisible (relearnButton);
+    relearnButton.setTooltip ("Forget the learned noise and listen again (leave a second of quiet)");
+    relearnButton.onClick = [this] { proc.relearn(); };
+
     addAndMakeVisible (listenButton);
     listenButton.setClickingTogglesState (true);
     listenButton.getProperties().set ("hot", true);
@@ -291,7 +295,8 @@ void BuzzKillEditor::resized()
     monitorArea = { 548, 336, getWidth() - 568, 124 };
     crestArea = { getWidth() - 270, 14, 250, 72 };
     release.setBounds (knobArea.getCentreX() - 50, knobArea.getY() + 20, 100, 92);
-    listenButton.setBounds (monitorArea.getX() + 14, monitorArea.getY() + 84, monitorArea.getWidth() - 28, 28);
+    relearnButton.setBounds (monitorArea.getX() + 14, monitorArea.getY() + 50, monitorArea.getWidth() - 28, 28);
+    listenButton.setBounds (monitorArea.getX() + 14, monitorArea.getY() + 86, monitorArea.getWidth() - 28, 28);
     buildBackground();
 }
 
@@ -365,8 +370,8 @@ void BuzzKillEditor::drawStatus (juce::Graphics& g, juce::Rectangle<int> area)
 
     const char* names[] = { "LISTENING", "PLAYING", "LETTING GO", "BUZZ KILLED" };
     const char* lines[] = { "Learning your amp's noise. Leave it a second of quiet.",
-                            "Your notes cover the noise; it is cleaned as they fade.",
-                            "Following your note down into the noise.",
+                            "Gate open: your signal passes untouched (hum removed).",
+                            "Your note has faded into the noise; closing gently.",
                             "Nothing playing: noise fully removed." };
     const juce::Colour stateCol = st == 0 ? pal::hum : (st == 3 ? pal::ash : pal::ghost);
 
@@ -402,7 +407,7 @@ void BuzzKillEditor::drawStatus (juce::Graphics& g, juce::Rectangle<int> area)
          mains > 0 && hl > 0 ? pal::hum : pal::bone);
     juce::String cut = "-";
     if (st == 3 || removedSmooth > 60.0f) cut = "all of it";
-    else if (st != 0 && removedSmooth < 3.0f) cut = "hidden under your notes";
+    else if (st != 0 && removedSmooth < 3.0f) cut = "none (gate open)";
     else if (st != 0) cut = "-" + juce::String (juce::roundToInt (removedSmooth)) + " dB";
     row ("NOISE CUT", cut, pal::ghost);
 }
@@ -415,9 +420,8 @@ void BuzzKillEditor::paint (juce::Graphics& g)
     g.setFont (font (11.0f));
     g.setColour (pal::ash);
     const double ms = 1000.0 * proc.getLatencySamples() / std::max (1.0, proc.getRateForDisplay());
-    auto info = monitorArea.reduced (14, 0).withTrimmedTop (32).withHeight (40);
-    g.drawText (juce::String (juce::roundToInt (ms)) + " ms latency: fine to play through live", info.removeFromTop (18), juce::Justification::centredLeft);
-    g.drawText ("Put BuzzKill first in your chain", info.removeFromTop (18), juce::Justification::centredLeft);
+    auto info = monitorArea.reduced (14, 0).withTrimmedTop (28).withHeight (18);
+    g.drawText (juce::String (juce::roundToInt (ms)) + " ms latency: play through it live", info, juce::Justification::centredLeft);
     g.setFont (font (11.5f, true));
     g.setColour (pal::bone);
     g.drawText (release.getTextFromValue (release.getValue()), knobArea.getX(), knobArea.getBottom() - 25, knobArea.getWidth(), 16, juce::Justification::centred);

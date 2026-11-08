@@ -37,6 +37,7 @@ public:
 
     // live readouts for the editor
     const bkill::Telemetry& telemetry() const { return engine.tele; }
+    void relearn() { engine.requestRelearn(); }   // safe to call from the UI thread
     double getRateForDisplay() const { return currentRate; }
 
 private:

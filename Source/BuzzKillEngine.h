@@ -28,6 +28,7 @@
 #include <atomic>
 #include <cmath>
 #include <complex>
+#include <cstdint>
 #include <cstring>
 #include <vector>
 
@@ -92,7 +93,7 @@ struct FFT
 // Nothing rings after a note the way a notch filter would.
 struct HumCanceller
 {
-    static constexpr int K = 16;
+    static constexpr int K = 40;
     std::complex<double> osc[K], rot[K], st[K][4], snap[2][K][4];
     bool enabled[K] {};
     double depth[K] {};            // 0..1, how much of the estimate to trust (fades if it may have drifted)
@@ -104,8 +105,9 @@ struct HumCanceller
     int sliceLen = 4800, sliceCount = 0;
     bool prevValid = false;
     double measNum = 0, measDen = 0, sliceSeconds = 0.1;
-    std::complex<double> reacqAcc[K] {};
-    int reacqLen = 0, reacqLeft = 0;
+    std::complex<double> reacqAcc[K] {}, old[K] {};
+    int reacqLen = 0, reacqLeft = 0, xfLen = 960, xfLeft = 0;
+    bool measuring = false;   // frequency is only measured in truly quiet moments
     int measCount = 0;
 
     void reset()
@@ -121,8 +123,9 @@ struct HumCanceller
     }
     void tune (double fs, double f0, int numHarmonics)
     {
+        xfLen = std::max (1, (int) (0.02 * fs));
         sliceLen = (int) (fs * 0.1); sliceSeconds = sliceLen / fs;
-        prevValid = false; sliceCount = 0;
+        prevValid = false; sliceCount = 0; measNum = measDen = 0; measCount = 0;
         for (int k = 0; k < KF; ++k) slice[k] = 0;
         active = numHarmonics;
         for (int k = 0; k < active; ++k) rot[k] = std::polar (1.0, 2.0 * kPi * f0 * (k + 1) / fs);
@@ -139,20 +142,28 @@ struct HumCanceller
     }
     bool reacquiring() const { return reacqLeft > 0; }
 
+    // playing just started mid-slice: throw away the slice it contaminated
+    void abortSlice()
+    {
+        sliceCount = 0; prevValid = false;
+        for (auto& v : slice) v = 0;
+    }
+
     void finishSlice()
     {
         if (prevValid)
         {
+            double num = 0, den = 0;
             for (int k = 0; k < std::min (KF, active); ++k)
             {
                 if (! enabled[k]) continue;
                 const double dphi = std::arg (slice[k] * std::conj (prevSlice[k]));
                 // precision of the fundamental from harmonic k grows with k x amplitude
                 const double w = std::norm (slice[k]) * (k + 1) * (k + 1);
-                measNum += w * dphi / (2.0 * kPi * sliceSeconds * (k + 1));
-                measDen += w;
+                num += w * dphi / (2.0 * kPi * sliceSeconds * (k + 1));
+                den += w;
             }
-            ++measCount;
+            if (den > 0) { measNum += num; measDen += den; ++measCount; }   // only real readings count
         }
         for (int k = 0; k < KF; ++k) { prevSlice[k] = slice[k]; slice[k] = 0; }
         prevValid = true; sliceCount = 0;
@@ -181,33 +192,53 @@ struct HumCanceller
     // a: smoothing coefficient per sample
     float tick (float x, double a)
     {
+        // synthesise the hum we currently believe in
         double hum = 0;
+        for (int k = 0; k < active; ++k)
+        {
+            if (! enabled[k]) continue;
+            auto e = depth[k] * st[k][3];
+            if (xfLeft > 0) { const double w = (double) xfLeft / xfLen; e = w * old[k] + (1.0 - w) * e; }
+            hum += 2.0 * (e * osc[k]).real();
+        }
+        const double res = (double) x - hum;
+
         for (int k = 0; k < active; ++k)
         {
             auto* s = st[k];
             if (a > 0)
             {
-                const std::complex<double> d = (double) x * std::conj (osc[k]);
-                if (reacqLeft > 0) reacqAcc[k] += d;
-                else { s[0] += a * (d - s[0]); s[1] += a * (s[0] - s[1]); s[2] += a * (s[1] - s[2]); s[3] += a * (s[2] - s[3]); }
-                if (k < KF) slice[k] += d;
+                const auto c = std::conj (osc[k]);
+                if (reacqLeft > 0) reacqAcc[k] += res * c;   // measure what is LEFT over, while still cancelling
+                else
+                {
+                    const std::complex<double> d = (double) x * c;
+                    s[0] += a * (d - s[0]); s[1] += a * (s[0] - s[1]); s[2] += a * (s[1] - s[2]); s[3] += a * (s[2] - s[3]);
+                }
+                if (k < KF && measuring) slice[k] += (double) x * c;
             }
-            if (enabled[k]) hum += 2.0 * depth[k] * (s[3] * osc[k]).real();
             osc[k] *= rot[k];
         }
         if (++renorm >= 2048) { renorm = 0; for (int k = 0; k < active; ++k) osc[k] /= std::abs (osc[k]); }
+        if (xfLeft > 0) --xfLeft;
         if (a > 0)
         {
             if (reacqLeft > 0 && --reacqLeft == 0)
+            {
+                // corrected estimate = what we were cancelling + the leftover we just measured
                 for (int k = 0; k < active; ++k)
                 {
-                    const auto v = reacqAcc[k] / (double) reacqLen;
+                    old[k] = depth[k] * st[k][3];
+                    const auto v = old[k] + reacqAcc[k] / (double) reacqLen;
                     for (int j = 0; j < 4; ++j) st[k][j] = v;
+                    depth[k] = 1.0;
                 }
-            if (++sliceCount >= sliceLen) finishSlice();
+                xfLeft = xfLen;   // glide from the old estimate to the corrected one
+            }
+            if (measuring && ++sliceCount >= sliceLen) finishSlice();
         }
-        else if (sliceCount > 0 || prevValid) { sliceCount = 0; prevValid = false; for (auto& v : slice) v = 0; }
-        return (float) ((double) x - hum);
+        if ((a <= 0 || ! measuring) && (sliceCount > 0 || prevValid)) { sliceCount = 0; prevValid = false; for (auto& v : slice) v = 0; }
+        return (float) res;
     }
 };
 
@@ -216,7 +247,7 @@ struct HumCanceller
 class HumHunter
 {
 public:
-    static constexpr int K = 16;          // harmonics tracked per series
+    static constexpr int K = 40;          // harmonics tracked per series (hum + rectifier buzz)
     static constexpr int kSeries = 2;     // 50 Hz and 60 Hz
 
     void prepare (double sampleRate)
@@ -264,7 +295,7 @@ private:
 
     void initOsc (Osc& o, double f)
     {
-        o.valid = f < std::min (1000.0, fs * 0.45);
+        o.valid = f < std::min (2500.0, fs * 0.45);
         o.rot = std::polar (1.0, -2.0 * kPi * f / fs);
         o.p = { 1.0, 0.0 }; o.acc = { 0.0, 0.0 };
     }
@@ -381,7 +412,7 @@ struct Telemetry
     std::atomic<float> floorDb { -120 }, inDb { -120 }, outDb { -120 }, removedDb { 0 };
     std::atomic<float> mainsHz { 0 };
     std::atomic<int> humLines { 0 }, numBins { 0 };
-    std::atomic<unsigned> humMask { 0 };   // bit k = harmonic k+1 is being cancelled
+    std::atomic<std::uint64_t> humMask { 0 };   // bit k = harmonic k+1 is being cancelled
     std::atomic<float> binHz { 0 };
     std::atomic<float> inSpec[kMaxBins], noiseSpec[kMaxBins], outSpec[kMaxBins];
     Telemetry()
@@ -396,46 +427,55 @@ class Engine
 public:
     Telemetry tele;
 
-    // Analysis always uses a long window (~43 ms) so faint note tails can be told apart from the
-    // noise. The audio itself is processed through a short window, which sets the latency:
-    // latency 0 = ~11 ms, 1 = ~21 ms, 2 = ~43 ms
-    void prepare (double sampleRate, int latency = 0)
+    // Design: the audio itself is never split into frequency bands. It only has mains hum and
+    // buzz subtracted (a synthesised copy of the exact hum lines) and then passes through ONE
+    // smooth volume gate, so whatever is let through is your untouched signal.
+    // A long FFT analysis runs alongside purely as a detector: it hears faint note tails far
+    // below the broadband noise level, so the gate stays open for as long as your note lasts.
+    // A short look-ahead lets the gate open just before a pick attack reaches the output.
+    void prepare (double sampleRate)
     {
         fs = sampleRate;
         const int scale = fs <= 56000 ? 1 : (fs <= 112000 ? 2 : 4);
         N = 2048 * scale;
-        Ns = (512 << std::clamp (latency, 0, 2)) * scale;
-        H = Ns / 4; B = N / 2 + 1; Bs = Ns / 2 + 1;
-        fft.init (N); fftS.init (Ns);
-        win.resize ((size_t) N); winS.resize ((size_t) Ns);
-        for (int j = 0; j < N; ++j) win[(size_t) j] = (float) std::sin (kPi * j / N);     // sqrt-Hann
-        for (int j = 0; j < Ns; ++j) winS[(size_t) j] = (float) std::sin (kPi * j / Ns);
+        H = N / 8; B = N / 2 + 1;
+        D = std::max (1, (int) std::lround (0.005 * fs));                 // 5 ms look-ahead
+        fft.init (N);
+        win.resize ((size_t) N);
+        for (int j = 0; j < N; ++j) win[(size_t) j] = (float) std::sin (kPi * j / N);   // sqrt-Hann
         winPow = 0; winSum = 0; for (float v : win) { winPow += v * v; winSum += v; }
 
-        for (int c = 0; c < 2; ++c) { inRing[c].assign ((size_t) N, 0); rawRing[c].assign ((size_t) N, 0); outRing[c].assign ((size_t) Ns, 0); }
-        frame.assign ((size_t) N, cpx {}); frameS.assign ((size_t) Ns, cpx {}); gainS.assign ((size_t) Bs, 1.0f);
+        for (int c = 0; c < 2; ++c) { inRing[c].assign ((size_t) N, 0); rawRing[c].assign ((size_t) N, 0); }
+        frame.assign ((size_t) N, cpx {}); rawFrame.assign ((size_t) N, cpx {});
         P.assign ((size_t) B, 0); Psm.assign ((size_t) B, 0); noise.assign ((size_t) B, 0);
-        gain.assign ((size_t) B, 1); gainTarget.assign ((size_t) B, 1); open.assign ((size_t) B, 0); humBin.assign ((size_t) B, 0); humNear.assign ((size_t) B, -1);
-        noiseRaw.assign ((size_t) B, 0); ref.assign ((size_t) B, 0); rawFrame.assign ((size_t) N, cpx {});
-        tmp.assign ((size_t) B, 0); masked.assign ((size_t) B, 0); pending.assign ((size_t) B, 0);
-        cumP.assign ((size_t) B + 1, 0); cumR.assign ((size_t) B + 1, 0); xiPrev.assign ((size_t) B, 0);
+        noiseRaw.assign ((size_t) B, 0); ref.assign ((size_t) B, 0); tmp.assign ((size_t) B, 0);
+        open.assign ((size_t) B, 0); pending.assign ((size_t) B, 0); xiPrev.assign ((size_t) B, 0);
+        humBin.assign ((size_t) B, 0); humNear.assign ((size_t) B, -1);
 
         hunter.prepare (fs);
         for (auto& hc : canceller) hc.reset();
         hunterVersion = -1; tunedHz = 0; tunedSeries = -1; humCount = 0; sigmaF = 0.05; frozenSec = 0;
         for (auto& d : humDepth) d = 0;
         for (auto& v : offVotes) v = 0;
+        for (int k = 0; k < HumCanceller::K; ++k) { humCap[k] = 1.0f; humRatio[k] = 1.0f; }
         aQuiet = 1.0 - std::exp (-2.0 * kPi * 3.0 / fs);    // 3 Hz smoothing while quiet: locks on in ~0.2 s
         humQuiet = false;
 
         framesPerSec = (float) (fs / H);
         ddBeta = std::exp (-1.0f / (0.06f * framesPerSec));
-        pendFrames = std::max (2, (int) std::lround (0.02f * framesPerSec));
+        pendFrames = std::max (2, (int) std::lround (0.03f * framesPerSec));
         subLen = std::max (1, (int) (0.5f * framesPerSec));
         slowCoef = 1.0f - std::exp (-1.0f / (0.08f * framesPerSec));
-        hist.assign ((size_t) std::max (1, (int) framesPerSec), -150.0f);   // 1 s of frame levels
+        bandCoef = 1.0f - std::exp (-1.0f / (0.3f * framesPerSec));
+        snapEvery = std::max (1, (int) std::lround (0.5f * framesPerSec));
+        hist.assign ((size_t) std::max (1, (int) (2.0f * framesPerSec)), -150.0f);   // 2 s of levels
+        envAtt = 1.0f - std::exp (-1.0f / (0.0005f * (float) fs));
+        envRel = 1.0f - std::exp (-1.0f / (0.010f * (float) fs));
+        envSlowCoef = 1.0f - std::exp (-1.0f / (0.15f * (float) fs));
+        gateAtt = 1.0f - std::exp (-1.0f / (0.0007f * (float) fs));
         reset();
         tele.numBins = B; tele.binHz = (float) (fs / N);
+        holdSamples = 0;   // force the time constants to be recomputed for this sample rate
         setTightness (tight);
     }
 
@@ -446,61 +486,80 @@ public:
         {
             std::fill (inRing[c].begin(), inRing[c].end(), 0.0f);
             std::fill (rawRing[c].begin(), rawRing[c].end(), 0.0f);
-            std::fill (outRing[c].begin(), outRing[c].end(), 0.0f);
         }
-        std::fill (Psm.begin(), Psm.end(), 0.0f);
-        std::fill (gain.begin(), gain.end(), 1.0f);
-        std::fill (open.begin(), open.end(), 0);
-        std::fill (pending.begin(), pending.end(), 0);
-        std::fill (xiPrev.begin(), xiPrev.end(), 0.0f);
-        floorDb = 0; floorInit = false; learnedFrames = 0; learned = false; engage = 0;
-        frames = 0; subMin = 1000; std::fill (subMins, subMins + kSubs, 1000.0f);
-        subIdx = 0; subCount = 0; openness = 0; holdLeft = 0; histIdx = 0; quiet = false;
-        std::fill (hist.begin(), hist.end(), -150.0f);
+        resetLearning();
+        frames = 0; totalSlow = 0;
+        gate = 1.0f; env = 0; envSlow = 0; attackNow = false; musicPresent = false;
     }
 
-    int latencySamples() const { return Ns; }
+    // forget the learned noise and listen again (the Relearn button)
+    void requestRelearn() { relearnRequested = true; }
+
+    int latencySamples() const { return D; }
 
     // 0 = natural (long, gentle tails), 1 = tight (fast cut for palm mutes)
     void setTightness (float t)
     {
+        if (std::abs (t - tight) < 1.0e-6f && holdSamples > 0) return;
         tight = clampf (t, 0, 1);
         openThrDb  = 8.0f + 2.0f * tight;
-        closeThrDb = 3.5f + 2.5f * tight;
-        const float rel   = 0.140f * std::pow (0.08f, tight);        // 140 ms -> 11 ms per-band release
-        const float brRel = 0.300f * std::pow (0.08f, tight);        // 300 ms -> 24 ms floor fade
-        const float hold  = 0.120f * std::pow (0.10f, tight);        // 120 ms -> 12 ms hold
-        relCoef   = 1.0f - std::exp (-1.0f / (rel * framesPerSec));
-        brRelCoef = std::exp (-1.0f / (brRel * framesPerSec));
-        holdFrames = std::max (1, (int) (hold * framesPerSec));
+        closeThrDb = 4.5f + 2.0f * tight;
+        const float rel  = 0.250f * std::pow (0.06f, tight);        // 250 ms -> 15 ms gate release
+        const float hold = 0.120f * std::pow (0.10f, tight);        // 120 ms -> 12 ms hold
+        gateRel = std::exp (-1.0f / (rel * (float) fs));
+        holdSamples = std::max (1, (int) (hold * fs));
     }
     void setListenRemoved (bool b) { listenRemoved = b; }
 
     // L, R: in-place. R may be nullptr for mono.
     void process (float* L, float* R, int n)
     {
+        if (relearnRequested.exchange (false)) { resetLearning(); forcedLearn = std::max (1, (int) (0.5f * framesPerSec)); }
         const int nch = R != nullptr ? 2 : 1;
         float* ch[2] = { L, R };
         for (int i = 0; i < n; ++i)
         {
-            // ---- hum cancellation (zero latency) + hum analysis on the raw input
+            // ---- hum and buzz cancellation (sample by sample) + hum analysis on the raw input
             float in[2], hummed[2];
             for (int c = 0; c < nch; ++c) in[c] = ch[c][i];
             const float mono = nch == 2 ? 0.5f * (in[0] + in[1]) : in[0];
             hunter.feed (mono, quiet);
-            const double a = humQuiet ? aQuiet : 0.0;   // frozen while playing
+            if (humQuiet && attackNow)   // a pick attack: stop listening for hum now
+            {
+                humQuiet = false;
+                for (auto& hc : canceller) hc.measuring = false;
+                for (auto& hc : canceller) { hc.rollback(); hc.abortSlice(); }
+            }
+            const double a = humQuiet ? aQuiet : 0.0;   // held while playing
             for (int c = 0; c < nch; ++c) hummed[c] = canceller[c].tick (in[c], a);
 
-            // ---- STFT stream (latency = Ns samples)
-            const size_t oi = (size_t) (pos % Ns);
+            for (int c = 0; c < nch; ++c) { rawRing[c][(size_t) pos] = in[c]; inRing[c][(size_t) pos] = hummed[c]; }
+
+            // ---- fast attack detector (time domain): opens the gate on a pick attack within
+            // about a millisecond, well inside the 5 ms look-ahead
+            const float hm = nch == 2 ? 0.5f * (hummed[0] + hummed[1]) : hummed[0];
+            const float e2 = hm * hm;
+            env += (e2 - env) * (e2 > env ? envAtt : envRel);
+            envSlow += (e2 - envSlow) * envSlowCoef;
+            // a pick attack is a sudden jump: well above the noise AND well above the recent level
+            attackNow = learned && env > attackRef * attackLin && env > envSlow * 4.0f;
+            const bool attack = attackNow;
+
+            // ---- the gate: one smooth gain for the whole signal
+            if (! learned) gate += (1.0f - gate) * gateAtt;                    // pass-through while listening
+            else
+            {
+                if (attack || musicPresent) holdLeft = holdSamples;
+                if (holdLeft > 0) { --holdLeft; gate += (1.0f - gate) * gateAtt; }
+                else { gate *= gateRel; if (gate < 1.0e-5f) gate = 0.0f; }
+            }
+
+            // ---- output: the look-ahead-delayed, hum-free signal times the gate
+            const size_t di = (size_t) ((pos + N - D) % N);
             for (int c = 0; c < nch; ++c)
             {
-                const float dry = rawRing[c][(size_t) ((pos + N - Ns) % N)];
-                const float wet = outRing[c][oi];
-                rawRing[c][(size_t) pos] = in[c];
-                inRing[c][(size_t) pos] = hummed[c];
-                outRing[c][oi] = 0;
-                ch[c][i] = listenRemoved ? dry - wet : wet;
+                const float wet = inRing[c][di] * gate;
+                ch[c][i] = listenRemoved ? rawRing[c][di] - wet : wet;
             }
             if (++pos >= N) pos = 0;
             if (++hopCount >= H) { hopCount = 0; processFrame (nch); }
@@ -511,6 +570,23 @@ public:
     }
 
 private:
+    static constexpr double kHumMaxHz = 2500.0;   // hum and rectifier buzz lines cancelled up to here
+
+    void resetLearning()
+    {
+        std::fill (Psm.begin(), Psm.end(), 0.0f);
+        std::fill (open.begin(), open.end(), 0);
+        std::fill (pending.begin(), pending.end(), 0);
+        std::fill (xiPrev.begin(), xiPrev.end(), 0.0f);
+        floorDb = 0; floorInit = false; learnedFrames = 0; learned = false; relearnFrames = 0;
+        subMin = 1000; std::fill (subMins, subMins + kSubs, 1000.0f);
+        subIdx = 0; subCount = 0; histIdx = 0; histFill = 0; quiet = false; noiseTd = 0; noiseTdRaw = 0; attackRef = 0;
+        std::fill (hist.begin(), hist.end(), -150.0f);
+        musicPresent = false;
+        snapIdx = 0; snapsFilled = 0; snapCounter = 0;
+        for (auto& v : bandSlow) v = -150.0f;
+    }
+
     void updateHum()
     {
         hunterVersion = hunter.version();
@@ -519,7 +595,7 @@ private:
         int lines = 0, count = 0;
         for (int k = 0; k < HumCanceller::K; ++k)
         {
-            if (f0 * (k + 1) > std::min (1000.0, fs * 0.45)) break;
+            if (f0 * (k + 1) > std::min (kHumMaxHz, fs * 0.45)) break;
             count = k + 1;
             // lines switch on at once, but only switch off after several blocks in a row without
             // hum (one block disturbed by a fading note must not drop a line)
@@ -550,15 +626,15 @@ private:
         {
             const double hz = (double) b * fs / N;
             const int k = (int) std::lround (hz / f0) - 1;
-            humNear[(size_t) b] = (hz < 1100.0 && k >= 0 && k < humCount) ? (signed char) k : (signed char) -1;
+            humNear[(size_t) b] = (hz < kHumMaxHz + 100.0 && k >= 0 && k < humCount) ? (signed char) k : (signed char) -1;
         }
-        unsigned mask = 0;
+        std::uint64_t mask = 0;
         for (int k = 0; k < humCount; ++k)
             if (canceller[0].enabled[k])
             {
                 const int b = (int) std::lround (f0 * (k + 1) * N / fs);
                 if (b > 0 && b < B) humBin[(size_t) b] = 1;
-                mask |= 1u << k;
+                mask |= std::uint64_t (1) << k;
             }
         tele.humMask = mask;
         for (auto& hc : canceller) hc.tune (fs, f0, humCount);
@@ -574,15 +650,23 @@ private:
         for (int k = 0; k < canceller[0].active; ++k)
         {
             const double phaseErr = 2.0 * kPi * (k + 1) * sigmaF * frozenSec;
-            const double target = humQuiet ? 1.0 : std::clamp (1.0 - phaseErr / (kPi / 3.0), 0.0, 1.0);
+            const double target = humCap[k] * (humQuiet ? 1.0 : std::clamp (1.0 - phaseErr / (kPi / 3.0), 0.0, 1.0));
             for (auto& hc : canceller)
             {
                 double& d = hc.depth[k];
-                if (hc.reacquiring()) d = 0;
-                else d += (target - d) * std::min (1.0, n / (0.03 * fs));
+                if (humCap[k] <= 0.0f) { d = 0; continue; }   // watchdog: muted now
+                if (hc.reacquiring()) continue;               // hold the confidence-limited depth meanwhile
+                d += (target - d) * std::min (1.0, n / (0.03 * fs));
             }
             humDepth[k] = (float) canceller[0].depth[k];
         }
+        // noise level the attack detector compares against: the hum-free noise, plus whatever
+        // hum the canceller isn't removing right now (weighted to the strong low lines)
+        float dsum = 0, wsum = 0;
+        for (int k = 0; k < std::min (4, canceller[0].active); ++k)
+            if (canceller[0].enabled[k]) { dsum += humDepth[k]; wsum += 1.0f; }
+        const float undone = wsum > 0 ? 1.0f - dsum / wsum : 0.0f;
+        attackRef = noiseTd + undone * std::max (0.0f, noiseTdRaw - noiseTd);
     }
 
     // Keep the reference locked to the real mains frequency (it drifts by hundredths of a Hz)
@@ -592,7 +676,7 @@ private:
         if (tunedHz <= 0 || ! canceller[0].takeMeasurement (df)) return;
         const double nominal = tunedSeries == 0 ? 50.0 : 60.0;
         const double f0 = std::clamp (tunedHz + 0.6 * df, nominal - 0.5, nominal + 0.5);
-        sigmaF = 0.0008 + 0.5 * std::abs (df);   // how unsure we still are about the frequency
+        sigmaF = 0.003 + std::abs (df);          // how unsure we still are about the frequency (mains wanders)
         if (std::abs (f0 - tunedHz) > 1.0e-6) setHumFreq (f0);
     }
 
@@ -630,42 +714,93 @@ private:
             total += Psm[(size_t) b];
         }
         const float Edb = powToDb ((float) total);
-        // floor decisions use a slower level (a short frame sees hum phase as a 3 dB wobble)
+        // floor decisions use a slower level (a short frame sees hum phase as a wobble)
         totalSlow += (total - totalSlow) * slowCoef;
-        if (frames == N / H + 3) totalSlow = total;   // first frame after the ring has filled
         const float Es = powToDb ((float) totalSlow);
         ++frames;
 
-        const bool digitalSilence = Edb < -125.0f || frames <= N / H + 3 + (int) (0.1f * framesPerSec);   // skip ring fill + level settling
+        const bool digitalSilence = Edb < -125.0f || frames <= N / H + 3 + (int) (0.1f * framesPerSec);   // ring fill + settling
         if (digitalSilence) totalSlow = total;
         if (! digitalSilence) trackFloor (Es);
 
-        // quiet = level at the long-term floor and holding steady for a second
-        const float Eago = hist[(size_t) histIdx];
-        hist[(size_t) histIdx] = Es; histIdx = (histIdx + 1) % (int) hist.size();
-        const bool steady = std::abs (Es - Eago) < 1.5f;
-        quiet = ! digitalSilence && floorInit && Es < floorDb + 2.5f && steady && frames > (int) hist.size();
+        // level history: 1 s and 2 s ago
+        const int hn = (int) hist.size();
+        const float E1 = hist[(size_t) ((histIdx + hn / 2) % hn)];
+        hist[(size_t) histIdx] = Es; histIdx = (histIdx + 1) % hn;
+        if (histFill < hn) ++histFill;
 
+        // The noise changed and the whole spectrum has then held perfectly still for 2 s (e.g. the
+        // guitar's volume knob was turned back up and its pickup buzz returned). Playing never
+        // holds still like that (notes decay, waver and change), so adopt it as the new noise.
+        const bool stationary = updateStationarity();
+        if (floorInit && learned && ! digitalSilence && stationary && Es > floorDb + 2.0f && Es < floorDb + 15.0f && ! attackNow)
+        {
+            floorDb = Es;
+            for (auto& v : subMins) v = Es;
+            relearnFrames = (int) (0.6f * framesPerSec);
+            std::fill (open.begin(), open.end(), 0);
+            std::fill (xiPrev.begin(), xiPrev.end(), 0.0f);
+        }
+
+        // quiet = level at the long-term floor and holding steady for a second
+        const bool steady = std::abs (Es - E1) < 1.5f;
+        quiet = ! digitalSilence && floorInit && Es < floorDb + 2.5f && steady && histFill >= hn / 2;
+        // just after Relearn was pressed: you've told us it's quiet, so learn right away
+        if (forcedLearn > 0)
+        {
+            --forcedLearn;
+            if (! digitalSilence && floorInit && ! attackNow) { quiet = true; floorDb = std::min (floorDb, Es); if (forcedLearn > 0) floorDb = Es; }
+        }
+
+        rawSpectrum (nch);   // -> tmp: the same moment with no hum removed
+
+        // Watchdog: if cancelling a hum line ever makes that line LOUDER than the raw input
+        // (its held estimate has drifted), mute that line at once until it is re-measured.
+        for (int k = 0; k < canceller[0].active; ++k)
+        {
+            if (! canceller[0].enabled[k]) { humCap[k] = 1.0f; continue; }
+            const int b = (int) std::lround (tunedHz * (k + 1) * N / fs);
+            if (b < 1 || b >= B - 1) continue;
+            const float after = Psm[(size_t) b - 1] + Psm[(size_t) b] + Psm[(size_t) b + 1];
+            const float before = tmp[(size_t) b - 1] + tmp[(size_t) b] + tmp[(size_t) b + 1];
+            float& r = humRatio[k];
+            r += 0.3f * (after / (before + 1.0e-20f) - r);
+            if (r > 1.25f) humCap[k] = 0.0f;                                  // adding hum: stop
+            else if (humQuiet) humCap[k] = std::min (1.0f, humCap[k] + 0.05f); // re-measured: back in
+        }
 
         // learn the noise profile
         if (quiet)
         {
             const bool fast = learnedFrames < (int) (0.15f * framesPerSec) || relearnFrames > 0;
             if (relearnFrames > 0) --relearnFrames;
-            const float a = fast ? 0.08f : 1.0f - std::exp (-1.0f / (0.4f * framesPerSec));
-            rawSpectrum (nch);   // -> tmp: the same moment with no hum removed
+            const float a = fast ? 0.15f : 1.0f - std::exp (-1.0f / (0.4f * framesPerSec));
             for (int b = 0; b < B; ++b)
             {
                 noise[(size_t) b] += a * (Psm[(size_t) b] - noise[(size_t) b]);
                 noiseRaw[(size_t) b] += a * (tmp[(size_t) b] - noiseRaw[(size_t) b]);
             }
-            if (learnedFrames == 0) for (int b = 0; b < B; ++b) { noise[(size_t) b] = Psm[(size_t) b]; noiseRaw[(size_t) b] = tmp[(size_t) b]; }
+            // time-domain noise power of the hum-free signal (for the attack detector)
+            double ms = 0, msRaw = 0;
+            for (int j = N - H; j < N; ++j)
+            {
+                const size_t idx = (size_t) ((pos + j) % N);
+                const float m = nch == 2 ? 0.5f * (inRing[0][idx] + inRing[1][idx]) : inRing[0][idx];
+                const float r = nch == 2 ? 0.5f * (rawRing[0][idx] + rawRing[1][idx]) : rawRing[0][idx];
+                ms += (double) m * m; msRaw += (double) r * r;
+            }
+            ms /= H; msRaw /= H;
+            if (learnedFrames == 0)
+            {
+                for (int b = 0; b < B; ++b) { noise[(size_t) b] = Psm[(size_t) b]; noiseRaw[(size_t) b] = tmp[(size_t) b]; }
+                noiseTd = (float) ms; noiseTdRaw = (float) msRaw;
+            }
+            else { noiseTd += a * ((float) ms - noiseTd); noiseTdRaw += a * ((float) msRaw - noiseTdRaw); }
             ++learnedFrames;
             if (learnedFrames > (int) (0.3f * framesPerSec)) learned = true;
         }
 
-
-        // ---- per-band gate
+        // ---- detector: is any musical partial above the noise anywhere?
         // noise reference = learned noise, plus whatever hum the canceller is currently not removing
         for (int b = 0; b < B; ++b)
         {
@@ -674,155 +809,94 @@ private:
             ref[(size_t) b] = noise[(size_t) b] + undone * std::max (0.0f, noiseRaw[(size_t) b] - noise[(size_t) b]);
         }
         const float openLin = std::pow (10.0f, openThrDb / 10.0f), closeLin = std::pow (10.0f, closeThrDb / 10.0f);
-        const float strongLin = openLin * 4.0f;   // +6 dB: opens at once (pick attacks)
+        const float strongLin = openLin * 4.0f;   // +6 dB: counts at once
         const int bLo = std::max (1, (int) (60.0 * N / fs)), bHi = std::min (B - 1, (int) (12000.0 * N / fs));
-        const int bHum = std::max (bLo, (int) (1100.0 * N / fs));   // hum lines stay below this
-        int openCount = 0, openHigh = 0, openMusic = 0;
+        const int bHum = std::min (bHi, std::max (bLo, (int) ((kHumMaxHz + 100.0) * N / fs)));   // hum lines stay below this
+        int openMusic = 0;
         double hiE = 0, hiN = 0;
-
-        // local masking: level of the music vs the noise over about a third of an octave around
-        // each band. Where the guitar is far above the noise, the noise is inaudible, so nothing
-        // there is gated (gating loud playing only carves the guitar's own texture and makes
-        // phasey, wah-like movement as notes bend). Gating fades in as the music nears the noise.
-        cumP[0] = 0; cumR[0] = 0;
-        for (int b = 0; b < B; ++b) { cumP[(size_t) b + 1] = cumP[(size_t) b] + Psm[(size_t) b]; cumR[(size_t) b + 1] = cumR[(size_t) b] + ref[(size_t) b]; }
-        for (int b = 0; b < B; ++b)
-        {
-            const int half = std::max (2, (int) (b * 0.12f));
-            const int lo = std::max (0, b - half), hi = std::min (B, b + half + 1);
-            const double sp = cumP[(size_t) hi] - cumP[(size_t) lo], sr = cumR[(size_t) hi] - cumR[(size_t) lo];
-            const float localDb = powToDb ((float) (sp / (sr + 1.0e-20)));
-            masked[(size_t) b] = clampf ((localDb - maskLoDb) / (maskHiDb - maskLoDb), 0.0f, 1.0f);
-        }
-
         for (int b = 0; b < B; ++b)
         {
             if (b >= bHum && b <= bHi) { hiE += Psm[(size_t) b]; hiN += noise[(size_t) b]; }
             const float snr = Psm[(size_t) b] / (ref[(size_t) b] + 1.0e-20f);
-            // decision-directed signal-to-noise estimate: blends what this band carried a moment
-            // ago with what it carries now, so bands near the threshold stop flickering
-            // (smooths the frame-to-frame scatter while music is there, but is capped at a few times
-            // what the band holds right now, so it lets go within a frame or two once it is gone)
+            // smoothed (decision-directed) estimate: steady while music is there, but capped at a
+            // few times what the band holds right now so it lets go at once when it's gone
             const float ml = std::max (snr - 1.0f, 0.0f);
             float& xi = xiPrev[(size_t) b];
-            xi = std::min (ddBeta * xi + (1.0f - ddBeta) * ml, 4.0f * ml + 0.5f);
-            if (snr > strongLin) xi = std::max (xi, ml);   // attacks at once
+            xi = std::min (ddBeta * xi + (1.0f - ddBeta) * ml, 3.0f * ml + 0.3f);
+            if (snr > strongLin) xi = std::max (xi, ml);
             const float lvl = xi + 1.0f;
-            // a band opens after ~20 ms of steady evidence, or at once if it jumps in strongly;
-            // a lone noise peak can no longer blip open as a short whistle
+            // a band counts after ~20 ms of steady evidence, or at once if it jumps in strongly,
+            // so a random noise peak can't open the gate
             unsigned char& pend = pending[(size_t) b];
             pend = lvl > openLin ? (unsigned char) std::min (255, pend + 1) : (unsigned char) 0;
             if (snr > strongLin || pend >= pendFrames) open[(size_t) b] = 1;
             else if (lvl < closeLin) open[(size_t) b] = 0;
-            float g = 0;
-            if (open[(size_t) b])
-            {
-                g = std::sqrt (xi / (1.0f + xi));   // Wiener: removes only the noise's share
-                if (b >= bLo && b <= bHi) ++openCount;
-                if (b >= bHum && b <= bHi) ++openHigh;
-                // near the hum lines, only count it as music if it is louder than the amp's
-                // full, uncancelled hum would be there (leftover hum can never qualify)
-                if (b >= bLo && b <= bHi && (humNear[(size_t) b] < 0 || Psm[(size_t) b] > 2.0f * noiseRaw[(size_t) b])) ++openMusic;
-            }
-            tmp[(size_t) b] = g;
+            // near the hum lines, only count it as music if it is louder than the amp's full,
+            // uncancelled hum would be there
+            if (open[(size_t) b] && b >= bLo && b <= bHi && (humNear[(size_t) b] < 0 || Psm[(size_t) b] > 2.0f * noiseRaw[(size_t) b]))
+                ++openMusic;
         }
-        // protect each harmonic's main lobe (neighbouring bins follow the peak), then lift
-        // everything that is masked by the music around it
-        for (int b = 0; b < B; ++b)
-        {
-            const float nb = std::max (tmp[(size_t) std::max (0, b - 1)], tmp[(size_t) std::min (B - 1, b + 1)]);
-            const float g = std::max (tmp[(size_t) b], 0.75f * nb);
-            gainTarget[(size_t) b] = g + (1.0f - g) * masked[(size_t) b];
-        }
+        musicPresent = learned && openMusic > 0;
+        framesSinceAttack = (musicPresent || attackNow) ? 0 : framesSinceAttack + 1;
 
         // hum estimator listens whenever nothing is sounding above the noise (every gap, even
-        // between palm mutes) and undoes the last couple of hops when playing starts.
-        // Bins sitting exactly on a hum line are ignored, so leftover hum can never block its
-        // own correction, but any musical partial anywhere else counts as playing.
+        // between palm mutes) and undoes the last couple of hops when playing starts
         {
-            const bool hq = learned ? (openMusic == 0 && hiE < 2.0 * hiN) : quiet;
+            const bool hq = learned ? (openMusic == 0 && hiE < 2.0 * hiN && ! attackNow) : quiet;
             if (humQuiet && ! hq) for (auto& hc : canceller) hc.rollback();
             if (! humQuiet && hq && frozenSec > 0.5 && tunedHz > 0)
                 for (auto& hc : canceller)
-                {
                     hc.beginReacquire ((int) std::lround (3.0 * fs / tunedHz));   // 3 mains cycles
-                    for (auto& d : hc.depth) d = 0;
-                }
-            for (auto& hc : canceller) hc.snapshot();
+            for (auto& hc : canceller) { hc.snapshot(); hc.measuring = quiet && ! attackNow; }
             humQuiet = hq;
-        }
-
-        // whole-signal floor: residual noise is kept at -30 dB while playing, fades to silence after
-        if (openCount > 0) { openness = 1.0f; holdLeft = holdFrames; }
-        else if (holdLeft > 0) --holdLeft;
-        else openness *= brRelCoef;
-        const float floorGain = 0.0316f * openness;
-
-        // engage smoothly once the noise floor is known
-        engage += ((learned ? 1.0f : 0.0f) - engage) * 0.05f;
-
-        double outTotal = 0, nIn = 0, nOut = 0;
-        for (int b = 0; b < B; ++b)
-        {
-            const float t = gainTarget[(size_t) b];
-            float& g = gain[(size_t) b];
-            g = t > g ? t : g + (t - g) * relCoef;
-            float gf = std::max (g, floorGain);
-            gf = 1.0f - engage * (1.0f - gf);
-            tmp[(size_t) b] = gf;
-            outTotal += Psm[(size_t) b] * gf * gf;
-            nIn += noise[(size_t) b]; nOut += noise[(size_t) b] * gf * gf;
-        }
-
-        // ---- apply through the short synthesis window: each short band takes the most open of
-        // the analysis bands it covers (so a note's harmonics are never cut)
-        const int r = N / Ns, margin = r > 1 ? r / 2 + 2 : 0;
-        for (int sb = 0; sb < Bs; ++sb)
-        {
-            const int c0 = std::max (0, sb * r - margin), c1 = std::min (B - 1, sb * r + margin);
-            float g = 0;
-            for (int b = c0; b <= c1; ++b) g = std::max (g, tmp[(size_t) b]);
-            gainS[(size_t) sb] = g;
-        }
-        for (int j = 0; j < Ns; ++j)
-        {
-            const size_t idx = (size_t) ((pos + N - Ns + j) % N);
-            const float l = inRing[0][idx] * winS[(size_t) j];
-            const float rr = nch == 2 ? inRing[1][idx] * winS[(size_t) j] : 0.0f;
-            frameS[(size_t) j] = { l, rr };
-        }
-        fftS.run (frameS.data(), false);
-        for (int sb = 0; sb < Bs; ++sb)
-        {
-            frameS[(size_t) sb] *= gainS[(size_t) sb];     // gain is real and symmetric, so packed
-            if (sb > 0 && sb < Ns / 2) frameS[(size_t) (Ns - sb)] *= gainS[(size_t) sb];   // stereo stays separable
-        }
-        fftS.run (frameS.data(), true);
-        const float scale = 0.5f / (float) Ns;   // sqrt-Hann^2 at 75% overlap sums to 2
-        for (int j = 0; j < Ns; ++j)
-        {
-            const size_t idx = (size_t) ((pos + j) % Ns);
-            const float w = winS[(size_t) j] * scale;
-            outRing[0][idx] += frameS[(size_t) j].real() * w;
-            if (nch == 2) outRing[1][idx] += frameS[(size_t) j].imag() * w;
         }
 
         // ---- telemetry
         int st = 0;
-        if (learned) st = openCount > 0 ? 1 : (openness > 0.05f ? 2 : 3);
+        if (learned) st = musicPresent ? 1 : (gate > 0.01f ? 2 : 3);
         tele.state = st;
         tele.floorDb = floorInit ? floorDb : -120.0f;
         tele.inDb = Edb;
-        const float oDb = powToDb ((float) outTotal);
-        tele.outDb = oDb;
-        tele.removedDb = learned ? clampf (powToDb ((float) nIn) - powToDb ((float) nOut), 0.0f, 99.0f) : 0.0f;   // how far the noise is turned down
+        const float g2 = gate * gate;
+        tele.outDb = powToDb ((float) total * g2);
+        tele.removedDb = learned ? clampf (-powToDb (g2), 0.0f, 99.0f) : 0.0f;
         if ((frames & 3) == 0)
             for (int b = 0; b < B && b < Telemetry::kMaxBins; ++b)
             {
                 tele.inSpec[b] = powToDb (Psm[(size_t) b]);
                 tele.noiseSpec[b] = learnedFrames > 0 ? powToDb (noise[(size_t) b]) : -150.0f;
-                tele.outSpec[b] = powToDb (Psm[(size_t) b] * tmp[(size_t) b] * tmp[(size_t) b]);
+                tele.outSpec[b] = powToDb (Psm[(size_t) b] * g2);
             }
+    }
+
+    // Compares the smoothed spectrum (24 bands) with itself 1 s and 2 s ago.
+    bool updateStationarity()
+    {
+        constexpr int nb = kBands;
+        float cur[nb] {};
+        for (int i = 0; i < nb; ++i)
+        {
+            const double f0 = 60.0 * std::pow (200.0, (double) i / nb), f1 = 60.0 * std::pow (200.0, (double) (i + 1) / nb);
+            const int b0 = std::max (1, (int) (f0 * N / fs)), b1 = std::min (B - 1, std::max (b0, (int) (f1 * N / fs)));
+            float e = 0; for (int b = b0; b <= b1; ++b) e += Psm[(size_t) b];
+            bandSlow[i] += (powToDb (e) - bandSlow[i]) * bandCoef;
+            cur[i] = bandSlow[i];
+        }
+        if (++snapCounter >= snapEvery)
+        {
+            snapCounter = 0;
+            snapIdx = (snapIdx + 1) % kSnaps;
+            for (int i = 0; i < nb; ++i) snaps[snapIdx][i] = cur[i];
+            if (snapsFilled < kSnaps) ++snapsFilled;
+        }
+        if (snapsFilled < kSnaps) return false;
+        auto dist = [&] (int back)
+        {
+            const int idx = (snapIdx - back + kSnaps) % kSnaps;
+            float d = 0; for (int i = 0; i < nb; ++i) d += std::abs (cur[i] - snaps[idx][i]);
+            return d / nb;
+        };
+        return dist (2) < 1.0f && dist (4) < 1.0f;   // snapshots every 0.5 s: 1 s and 2 s ago
     }
 
     // power spectrum of the input before hum removal for the current frame -> tmp (freq-smoothed)
@@ -864,23 +938,15 @@ private:
     }
 
     double fs = 48000;
-    int N = 2048, Ns = 512, H = 128, B = 1025, Bs = 257;
-    FFT fft, fftS;
-    std::vector<float> win, winS, gainS;
-    std::vector<cpx> frameS;
+    int N = 2048, H = 256, B = 1025, D = 240;
+    FFT fft;
+    std::vector<float> win;
     float winPow = 1, winSum = 1;
-    std::vector<float> inRing[2], rawRing[2], outRing[2];
-    std::vector<cpx> frame;
-    std::vector<float> P, Psm, noise, gain, gainTarget, tmp;
-    std::vector<unsigned char> open, humBin;
+    std::vector<float> inRing[2], rawRing[2];
+    std::vector<cpx> frame, rawFrame;
+    std::vector<float> P, Psm, noise, noiseRaw, ref, tmp, xiPrev;
+    std::vector<unsigned char> open, pending, humBin;
     std::vector<signed char> humNear;
-    std::vector<float> noiseRaw, ref, masked;
-    std::vector<unsigned char> pending;
-    std::vector<double> cumP, cumR;
-    float maskLoDb = 12.0f, maskHiDb = 25.0f, ddBeta = 0.9f;
-    int pendFrames = 2;
-    std::vector<float> xiPrev;
-    std::vector<cpx> rawFrame;
     int pos = 0, hopCount = 0;
 
     // floor tracking
@@ -888,27 +954,35 @@ private:
     float floorDb = 0, subMin = 1000, subMins[kSubs] {};
     int subIdx = 0, subCount = 0, subLen = 1;
     bool floorInit = false, quiet = false, learned = false;
-    int learnedFrames = 0, frames = 0, histIdx = 0, relearnFrames = 0;
+    int learnedFrames = 0, frames = 0, histIdx = 0, histFill = 0, relearnFrames = 0, framesSinceAttack = 0;
     std::vector<float> hist;
-    float framesPerSec = 375;
+    float framesPerSec = 187.5f;
     double totalSlow = 0; float slowCoef = 0.03f;
+    std::atomic<bool> relearnRequested { false };
+    int forcedLearn = 0;
+    static constexpr int kBands = 24, kSnaps = 5;
+    float bandSlow[kBands] {}, snaps[kSnaps][kBands] {}, bandCoef = 0.02f;
+    int snapIdx = 0, snapsFilled = 0, snapCounter = 0, snapEvery = 94;
 
-    // gate
-    float tight = 0.5f, openThrDb = 8, closeThrDb = 4, relCoef = 0.1f, brRelCoef = 0.9f;
-    int holdFrames = 10, holdLeft = 0;
-    float openness = 0, engage = 0;
-    bool listenRemoved = false;
+    // detector + gate
+    float tight = 0.35f, openThrDb = 8, closeThrDb = 4, ddBeta = 0.9f;
+    int pendFrames = 4, holdSamples = 0, holdLeft = 0;
+    bool attackNow = false;
+    float envSlow = 0, envSlowCoef = 0.0001f;
+    float noiseTd = 0, noiseTdRaw = 0, attackRef = 0, env = 0, envAtt = 0.04f, envRel = 0.002f, attackLin = 10.0f;   // +10 dB over the noise
+    float gate = 1, gateAtt = 0.03f, gateRel = 0.9999f;
+    bool musicPresent = false, listenRemoved = false;
 
     // hum
     HumHunter hunter;
     HumCanceller canceller[2];
     double aQuiet = 0;
     bool humQuiet = false;
-
     int hunterVersion = -1, humCount = 0, tunedSeries = -1;
     double sigmaF = 0.05, frozenSec = 0;
     float humDepth[HumCanceller::K] {};
     int offVotes[HumCanceller::K] {};
+    float humCap[HumCanceller::K] {}, humRatio[HumCanceller::K] {};
     double tunedHz = 0;
 };
 } // namespace bkill

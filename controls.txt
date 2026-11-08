@@ -15,31 +15,27 @@ passes the audio untouched until then.
 -------------------------------------------------------------------------------
 WHAT IT DOES ON ITS OWN
 -------------------------------------------------------------------------------
-  NOISE FLOOR    Finds the quietest steady level of your track (amp hiss,
-                 buzz, hum) and learns its "fingerprint" across the spectrum.
-                 A note dying away is never mistaken for noise, because it
-                 keeps falling. Noise holds still.
+  TRANSPARENT    Your audio is never split up or filtered. It passes through
+                 one smooth volume gate, so when the gate is open you hear
+                 exactly what went in (minus the hum).
 
-  HUM            Detects mains hum (50 Hz or 60 Hz) and its harmonics, tracks
-                 the exact frequency (it drifts slightly), and cancels each
-                 hum line with an inverted copy. Hum is removed even WHILE you
-                 play, and notes that sit right next to a hum line are left
-                 alone.
+  NOISE FLOOR    Learns your amp's noise by itself whenever nobody is playing,
+                 and keeps re-learning. If the noise changes and then holds
+                 steady for about 2 seconds (e.g. you turned the guitar's volume
+                 knob back up), it adopts the new noise automatically.
 
-  SUSTAIN        Instead of one gate slamming shut on the whole signal, every
-                 frequency band opens and closes on its own. As a note decays,
-                 its harmonics stay for as long as they are above the noise,
-                 while the hiss between them is removed. When nothing is left
-                 above the noise, the track goes to true silence.
+  HUM + BUZZ     Detects mains hum (50 or 60 Hz) and its harmonics up to about
+                 2.5 kHz (that's the buzz), tracks the exact frequency, and
+                 cancels each line with an inverted copy, even while you play.
+                 A watchdog mutes any line that would ever ADD hum, so the worst
+                 case is the original hum, never more.
 
-  YOUR TONE      While you play loud, the amp noise is hidden under your notes,
-                 so BuzzKill leaves your tone completely alone (no carving, no
-                 wah-like movement on bends and vibrato). Cleaning fades in only
-                 as notes sink toward the noise.
+  SUSTAIN        A detailed analysis listens for your note's harmonics far below
+                 the hiss level, and keeps the gate open for as long as any of
+                 them is still there. Then it closes gently to true silence.
 
-  LATENCY        About 11 ms, so you can play through it live. Your DAW
-                 compensates it automatically on recorded tracks.
-
+  ATTACKS        A 5 ms look-ahead opens the gate just before your pick hits,
+                 so attacks are never clipped.
 
 -------------------------------------------------------------------------------
 THE DISPLAY
@@ -50,14 +46,13 @@ THE DISPLAY
   HUM LINES       Red ticks along the top: hum harmonics being cancelled.
 
   STATUS          LISTENING   learning the noise (first second or so)
-                  PLAYING     notes present; the noise is hidden under them
+                  PLAYING     gate open: your signal passes untouched
                   LETTING GO  following a note's tail down into the noise
                   BUZZ KILLED nothing playing; silence
 
   NOISE FLOOR     The learned noise level in dBFS.
   HUM             Detected mains frequency and how many hum lines are locked.
-  NOISE CUT       How far the noise is being turned down right now ("hidden
-                  under your notes" while you play loud).
+  NOISE CUT       How far the noise is being turned down right now.
 
 
 -------------------------------------------------------------------------------
@@ -70,6 +65,11 @@ CONTROLS (all optional)
       Tight    fast cut. Best for high-gain rhythm and palm-mute chugs where
                the gaps should be dead silent instantly.
       Default is 35% (leaning natural). Double-click the knob to reset.
+
+  RELEARN
+      Forgets the learned noise and listens again. Press it with nobody
+      playing after changing amp channel, gain, pickups or guitar volume.
+      It's ready again in under a second.
 
   HEAR REMOVED
       Plays ONLY what BuzzKill is taking out. You should hear hiss, buzz and

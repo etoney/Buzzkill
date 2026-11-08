@@ -92,7 +92,7 @@ int main (int argc, char** argv)
     const std::string out = argc > 1 ? argv[1] : ".";
     const double mains = argc > 2 ? std::atof (argv[2]) : 60.02;
     const float tight = argc > 3 ? (float) std::atof (argv[3]) : 0.5f;
-    const int sr = std::getenv ("DA_SR") ? std::atoi (std::getenv ("DA_SR")) : 48000; const double secs = 34;
+    const int sr = std::getenv ("DA_SR") ? std::atoi (std::getenv ("DA_SR")) : 48000; const double secs = std::getenv ("DA_VOLUME") ? 44 : 34;
     const bool noHum = std::getenv ("DA_NOHUM") != nullptr, noLead = std::getenv ("DA_NOLEAD") != nullptr, stereo = std::getenv ("DA_STEREO") != nullptr;
     const size_t n = (size_t) (sr * secs);
     std::mt19937 rng (3);
@@ -108,7 +108,8 @@ int main (int argc, char** argv)
     pluck (gtr, sr, 14.0, A2, 3.0, 0.35f, 3.0, false, rng);
     for (int i = 0; i < 12; ++i) chord (18.0 + i * 0.25, { E2, 123.47 }, 0.16, 0.35f, 0.5, true); // palm-mute chugs
     pluck (gtr, sr, 22.0, D3, 6.5, 0.12f, 8.0, false, rng);                         // quiet, very long note
-    leadNote (gtr, sr, 25.5, 2 * G3, 5.3, 0.45f);                                   // bend + vibrato lead (distorted below)
+    leadNote (gtr, sr, 25.5, 2 * G3, 5.3, 0.45f);
+    if (std::getenv ("DA_VOLUME")) pluck (gtr, sr, 41.5, E4, 2.0, 0.3f, 2.0, false, rng);                                   // bend + vibrato lead (distorted below)
     { std::vector<float> dry = gtr; addTexture (gtr, dry, sr, rng); }
     for (auto& v : gtr) v = std::tanh (v * 1.5f) / 1.5f;                              // a little amp grit
 
@@ -126,7 +127,12 @@ int main (int argc, char** argv)
         const double buzz = std::exp (-ph * 60.0) * 0.0012;
         lp1 += 0.35f * (nd (rng) - lp1); lp2 += 0.35f * (lp1 - lp2);
         const float hiss = lp2 * 0.0011f;
-        noise[i] = noHum ? hiss : (float) (hum + buzz) + hiss;
+        // pickup noise (single-coil buzz + hiss) follows the guitar's volume knob
+        float vol = 1.0f;
+        if (std::getenv ("DA_VOLUME")) vol = (t > 33.5 && t < 36.5) ? 0.0f : 1.0f;
+        const double pickup = vol * (0.0015 * std::sin (2 * kPi * 3 * mains * t) + 0.0010 * std::sin (2 * kPi * 5 * mains * t + 1.0)
+                                     + 0.0006 * std::sin (2 * kPi * 7 * mains * t + 2.0) + 0.0008 * nd (rng));
+        noise[i] = noHum ? hiss : (float) (hum + buzz + (std::getenv ("DA_VOLUME") ? pickup : 0.0)) + hiss;
     }
     double mean = 0; for (float v : noise) mean += v; mean /= n; for (auto& v : noise) v -= (float) mean;
 
@@ -135,12 +141,14 @@ int main (int argc, char** argv)
     y = in;
 
     const int quality = argc > 4 ? std::atoi (argv[4]) : 0;   // latency mode: 0 = ~11 ms (the plugin), 1 = ~21, 2 = ~43
-    Engine eng; eng.prepare (sr, quality); eng.setTightness (tight);
+    (void) quality;
+    Engine eng; eng.prepare (sr); eng.setTightness (tight);
     const int lat = eng.latencySamples();
     std::vector<float> y2 = y;
     const auto t0 = std::chrono::steady_clock::now();
     for (size_t i = 0; i < n; i += 256)
     {
+        if (std::getenv ("DA_RELEARN") && i <= (size_t) (36.7 * sr) && i + 256 > (size_t) (36.7 * sr)) eng.requestRelearn();   // press Relearn
         eng.process (y.data() + i, stereo ? y2.data() + i : nullptr, (int) std::min<size_t> (256, n - i));
         if (std::getenv ("DA_TRACE") && (i / 256) % 94 == 0)
             std::printf ("  t=%5.2f state %d floor %6.1f in %6.1f mains %.3f lines %d\n", (double) i / sr, eng.tele.state.load(), eng.tele.floorDb.load(), eng.tele.inDb.load(), eng.tele.mainsHz.load(), eng.tele.humLines.load());
@@ -184,6 +192,14 @@ int main (int argc, char** argv)
         std::printf ("  %4.1f  %6.1f  %7.1f   %7.1f    %6.1f dB below\n", t, c, rmsDb (in, t, t + 0.25), rmsDb (outA, t, t + 0.25), c - errDb);
     }
 
+    if (std::getenv ("DA_VOLUME"))
+    {
+        std::printf ("\nVOLUME KNOB: off 33.5-36.5 s, back up at 36.5 (nobody playing), note at 41.5\n  output level per 0.5 s from 33.5 s:");
+        for (double t = 33.5; t < 41.5; t += 0.5) std::printf (" %.0f", rmsDb (outA, t, t + 0.5));
+        std::printf ("\n  input  level per 0.5 s from 33.5 s:");
+        for (double t = 33.5; t < 41.5; t += 0.5) std::printf (" %.0f", rmsDb (in, t, t + 0.5));
+        std::printf ("\n");
+    }
     std::vector<float> removed (n); for (size_t i = 0; i < n; ++i) removed[i] = in[i] - outA[i];
     writeWav (out + "/before.wav", in, sr);
     writeWav (out + "/after.wav", outA, sr);

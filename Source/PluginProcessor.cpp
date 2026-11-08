@@ -49,7 +49,7 @@ bool BuzzKillProcessor::isBusesLayoutSupported (const BusesLayout& layouts) cons
 void BuzzKillProcessor::prepareToPlay (double sampleRate, int)
 {
     currentRate = sampleRate;
-    engine.prepare (sampleRate, 0);       // ~11 ms latency: fine to play through live
+    engine.prepare (sampleRate);          // 5 ms look-ahead: fine to play through live
     setLatencySamples (engine.latencySamples());
 }
 
