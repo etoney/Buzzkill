@@ -1,5 +1,5 @@
 // Headless checks run in CI:
-//  1) runs synthetic guitar + amp hum through the plugin, checks it learns and silences the gaps
+//  1) runs synthetic guitar + amp-sim style noise through the plugin, checks it learns and silences the gaps
 //  2) renders the editor to gui.png (playing) and gui_silent.png (gap)
 //  3) state save/restore round trip, latency reporting
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -60,9 +60,8 @@ int main (int argc, char** argv)
         for (int i = 0; i < 20; ++i) ed->refreshNow();
         check (writePng (ed->createComponentSnapshot (ed->getLocalBounds(), true, 2.0f), dir.getChildFile ("gui_silent.png")), "silent snapshot");
         const float red = 10.0f * std::log10 ((gapIn + 1e-20f) / (gapOut + 1e-20f));
-        std::printf ("gap reduction: %.1f dB, mains %.3f Hz, %d hum lines, state %d\n", red, proc.telemetry().mainsHz.load(), proc.telemetry().humLines.load(), proc.telemetry().state.load());
+        std::printf ("gap reduction: %.1f dB, state %d\n", red, proc.telemetry().state.load());
         check (red > 40.0f, "gap noise reduced by more than 40 dB");
-        check (std::abs (proc.telemetry().mainsHz.load() - 60.01f) < 0.02f, "mains hum locked to 60.01 Hz");
 
         // Relearn: forgets the noise, then is learned and silent again within a second of quiet
         proc.relearn();

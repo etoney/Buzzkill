@@ -168,9 +168,6 @@ void SpectrumView::update()
         follow (out[(size_t) b], t.outSpec[b].load());
         noise[(size_t) b] = t.noiseSpec[b].load();
     }
-    mainsHz = t.mainsHz.load();
-    humLines = t.humLines.load();
-    humMask = t.humMask.load();
     repaint();
 }
 
@@ -234,17 +231,9 @@ void SpectrumView::paint (juce::Graphics& g)
         g.setColour (pal::ghost); g.strokePath (op, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
-    // hum lines being cancelled
-    if (mainsHz > 0 && humLines > 0)
-        for (int k = 1; k * mainsHz < 2600.0 && k <= 64; ++k)
-        {
-            if (! (humMask & (std::uint64_t (1) << (k - 1)))) continue;
-            const float x = xForHz ((float) (k * mainsHz));
-            g.setColour (pal::hum.withAlpha (0.8f)); g.fillRect (x - 0.75f, 4.0f, 1.5f, 9.0f);
-        }
 
     // legend
-    auto leg = juce::Rectangle<float> (w - 330, 18, 320, 14);
+    auto leg = juce::Rectangle<float> (w - 230, 8, 220, 14);
     auto item = [&] (juce::Colour c, const juce::String& text, float width)
     {
         auto r = leg.removeFromLeft (width);
@@ -255,7 +244,6 @@ void SpectrumView::paint (juce::Graphics& g)
     item (pal::ash.withAlpha (0.8f), "IN", 44);
     item (pal::ghost, "OUT", 54);
     item (pal::hum.withAlpha (0.8f), "LEARNED NOISE", 112);
-    item (pal::hum, "HUM LINES", 100);
 
     g.setColour (pal::edge); g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 6.0f, 1.0f);
 }
@@ -336,7 +324,7 @@ void BuzzKillEditor::buildBackground()
     g.drawText ("BUZZKILL", 24, 14, 420, 56, juce::Justification::centredLeft);
     g.setFont (font (11.5f, true).withExtraKerningFactor (0.18f));
     g.setColour (pal::ghostDim);
-    g.drawText ("INTELLIGENT GUITAR NOISE GATE  //  V" + juce::String (JucePlugin_VersionString), 28, 68, 420, 16, juce::Justification::centredLeft);
+    g.drawText ("DYNAMIC GUITAR NOISE GATE  //  V" + juce::String (JucePlugin_VersionString), 28, 68, 420, 16, juce::Justification::centredLeft);
 
     // crest + company
     auto cr = crestArea.toFloat();
@@ -369,10 +357,10 @@ void BuzzKillEditor::drawStatus (juce::Graphics& g, juce::Rectangle<int> area)
     auto r = area.reduced (16, 10);
 
     const char* names[] = { "LISTENING", "PLAYING", "LETTING GO", "BUZZ KILLED" };
-    const char* lines[] = { "Learning your amp's noise. Leave it a second of quiet.",
-                            "Gate open: your signal passes untouched (hum removed).",
+    const char* lines[] = { "Learning the noise after your amp sim. Leave a second of quiet.",
+                            "Gate open: your signal passes untouched.",
                             "Your note has faded into the noise; closing gently.",
-                            "Nothing playing: noise fully removed." };
+                            "Not playing: gate closed, noise gone." };
     const juce::Colour stateCol = st == 0 ? pal::hum : (st == 3 ? pal::ash : pal::ghost);
 
     // status LED
@@ -401,10 +389,16 @@ void BuzzKillEditor::drawStatus (juce::Graphics& g, juce::Rectangle<int> area)
     };
     const float floorDb = t.floorDb.load();
     row ("NOISE FLOOR", st == 0 && floorDb <= -119 ? juce::String ("...") : juce::String (floorDb, 1) + " dBFS", pal::bone);
-    const float mains = t.mainsHz.load();
-    const int hl = t.humLines.load();
-    row ("HUM", mains > 0 && hl > 0 ? juce::String (mains, 2) + " Hz  -  " + juce::String (hl) + " lines locked" : juce::String ("none detected"),
-         mains > 0 && hl > 0 ? pal::hum : pal::bone);
+    const float lvl = t.levelDb.load(), ago = t.clampAgo.load();
+    juce::String gateText = "-";
+    if (st != 0)
+    {
+        if (ago < 0.6f) gateText = "fast clamp (mute / choke)";
+        else if (st == 1) gateText = "open, " + juce::String (juce::roundToInt (std::max (0.0f, lvl))) + " dB over noise";
+        else if (st == 2) gateText = "closing gently";
+        else gateText = "closed";
+    }
+    row ("GATE", gateText, ago < 0.6f ? pal::hum : pal::bone);
     juce::String cut = "-";
     if (st == 3 || removedSmooth > 60.0f) cut = "all of it";
     else if (st != 0 && removedSmooth < 3.0f) cut = "none (gate open)";

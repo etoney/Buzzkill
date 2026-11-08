@@ -1,15 +1,17 @@
-// Offline test for the BUZZKILL engine (no JUCE).
-//   buzzkill_render out_dir [mains_hz] [tightness]
-// Builds a synthetic guitar performance and realistic amp noise separately, runs
-// guitar+noise through the engine, then measures:
-//   - noise left in the gaps (dB reduction)
-//   - how closely the processed note tails follow the clean guitar (sustain kept)
-// Writes before.wav, after.wav and removed.wav.
+// Offline test for the BuzzKill engine (no JUCE), modelled on real use: a DI guitar (with pickup
+// hum and hiss) through a high-gain amp sim, then BuzzKill right after the sim.
+//   buzzkill_render out_dir [release 0..1] [amp gain]
+// Measures:
+//   - palm-mute noise leak: how long noise is heard after each chug has died into the noise
+//   - sustain: whether ringing notes are cut before they actually reach the noise floor
+//   - transparency: any gain change while you are clearly playing (should be none)
+//   - attacks: level of the first 5 ms of each chug vs the input (should be 0 dB)
+// Writes before.wav, after.wav, removed.wav, clean.wav.
 #include "BuzzKillEngine.h"
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <random>
-#include <chrono>
 #include <string>
 
 using namespace bkill;
@@ -27,183 +29,208 @@ static void writeWav (const std::string& path, const std::vector<float>& x, int 
     std::fclose (f);
 }
 
-// Karplus-Strong string with adjustable sustain; mute = palm mute (short, dark)
-static void pluck (std::vector<float>& y, int sr, double t0, double freq, double dur, float amp, double sustainSec, bool mute, std::mt19937& rng)
+// Karplus-Strong string. muteEnd: the note is stopped abruptly (palm mute lift / hand choke)
+static void pluck (std::vector<float>& y, int sr, double t0, double freq, double dur, float amp, double sustainSec,
+                   float bright, double stopMs, std::mt19937& rng)
 {
     const int start = (int) (t0 * sr), len = (int) (dur * sr);
-    const int D = std::max (2, (int) std::lround (sr / freq));
-    std::vector<float> line ((size_t) D);
+    const int Dl = std::max (2, (int) std::lround (sr / freq));
+    std::vector<float> line ((size_t) Dl);
     std::uniform_real_distribution<float> u (-1, 1);
     float lp = 0;
-    for (auto& v : line) { lp += 0.5f * (u (rng) - lp); v = lp; }
-    // per-period loop gain for the requested -60 dB time
+    for (auto& v : line) { lp += 0.6f * (u (rng) - lp); v = lp; }
     const double g = std::pow (10.0, -3.0 / (sustainSec * freq));
-    const float bright = mute ? 0.25f : 0.5f;
     int idx = 0; float prev = 0;
+    const int stop = (int) (stopMs * 0.001 * sr);
     for (int i = 0; i < len && start + i < (int) y.size(); ++i)
     {
         const float cur = line[(size_t) idx];
-        const float nxt = (float) g * (bright * cur + (1 - bright) * prev);
-        prev = cur; line[(size_t) idx] = nxt; idx = (idx + 1) % D;
-        float env = 1.0f;
-        const int rel = (int) (0.03 * sr);
-        if (i > len - rel) env = (float) (len - i) / rel;   // fret hand release at the end
-        y[(size_t) (start + i)] += amp * cur * env;
+        line[(size_t) idx] = (float) g * (bright * cur + (1 - bright) * prev);
+        prev = cur; idx = (idx + 1) % Dl;
+        float e = 1.0f;
+        if (i > len - stop) e = (float) (len - i) / (float) stop;
+        y[(size_t) (start + i)] += amp * cur * e * e;
     }
 }
 
-// sustained lead note: bend up a whole step, then wide vibrato, slowly decaying (written into y)
-static void leadNote (std::vector<float>& y, int sr, double t0, double f0, double dur, float amp)
+// simple high-gain amp sim: pre high-pass, huge gain into a saturator, cab-ish filtering
+struct AmpSim
 {
-    const int start = (int) (t0 * sr), len = (int) (dur * sr);
-    double ph[12] {};
-    for (int i = 0; i < len && start + i < (int) y.size(); ++i)
+    double hp = 0, hpx = 0, lp1 = 0, lp2 = 0, lp3 = 0, chp = 0, chpx = 0;
+    float gain = 60.0f;
+    float tick (float x, int sr)
     {
-        const double t = (double) i / sr;
-        double cents = t < 0.4 ? 0.0 : (t < 0.7 ? 200.0 * (t - 0.4) / 0.3 : 200.0);
-        if (t > 1.0) cents += 35.0 * std::sin (2 * kPi * 5.5 * (t - 1.0));
-        const double f = f0 * std::pow (2.0, cents / 1200.0);
-        const double env = std::exp (-t / 1.6) * std::min (1.0, t / 0.005) * std::min (1.0, (dur - t) / 0.05);
-        double v = 0;
-        for (int k = 0; k < 12; ++k) { ph[k] += 2 * kPi * f * (k + 1) / sr; v += std::sin (ph[k]) / (k + 1) * std::exp (-0.15 * k * t); }
-        y[(size_t) (start + i)] += (float) (amp * env * v);
+        const double a = std::exp (-2.0 * kPi * 120.0 / sr);
+        hp = a * (hp + x - hpx); hpx = x;                                // tighten the low end
+        const double s = std::tanh (hp * gain * 1.2) * 0.8 + std::tanh (hp * gain * 0.3) * 0.2;
+        const double c = 1.0 - std::exp (-2.0 * kPi * 4200.0 / sr);
+        lp1 += c * (s - lp1); lp2 += c * (lp1 - lp2); lp3 += c * (lp2 - lp3); // cab roll-off
+        const double b = std::exp (-2.0 * kPi * 70.0 / sr);
+        chp = b * (chp + lp3 - chpx); chpx = lp3;
+        return (float) (chp * 0.35);
     }
-}
-
-// real guitars carry texture between the harmonics (pick, string and fret noise, distortion
-// intermodulation) that follows the playing; add it at a level just above the amp noise
-static void addTexture (std::vector<float>& y, const std::vector<float>& ref, int sr, std::mt19937& rng)
-{
-    std::normal_distribution<float> nd (0, 1);
-    float env = 0, lp = 0, hp = 0, prev = 0;
-    const float ea = 1.0f - std::exp (-1.0f / (0.01f * sr));
-    for (size_t i = 0; i < y.size(); ++i)
-    {
-        env += (std::abs (ref[i]) - env) * ea;
-        const float x = nd (rng);
-        lp += 0.25f * (x - lp);                 // dark-ish
-        hp = lp - prev; prev = lp;              // remove the very bottom
-        y[i] += 0.05f * env * (lp + 0.6f * hp);
-    }
-}
+};
 
 int main (int argc, char** argv)
 {
     const std::string out = argc > 1 ? argv[1] : ".";
-    const double mains = argc > 2 ? std::atof (argv[2]) : 60.02;
-    const float tight = argc > 3 ? (float) std::atof (argv[3]) : 0.5f;
-    const int sr = std::getenv ("DA_SR") ? std::atoi (std::getenv ("DA_SR")) : 48000; const double secs = std::getenv ("DA_VOLUME") ? 44 : 34;
-    const bool noHum = std::getenv ("DA_NOHUM") != nullptr, noLead = std::getenv ("DA_NOLEAD") != nullptr, stereo = std::getenv ("DA_STEREO") != nullptr;
+    const float tight = argc > 2 ? (float) std::atof (argv[2]) : 0.35f;
+    const float ampGain = argc > 3 ? (float) std::atof (argv[3]) : 60.0f;
+    const int sr = std::getenv ("DA_SR") ? std::atoi (std::getenv ("DA_SR")) : 48000;
+    const bool stereo = std::getenv ("DA_STEREO") != nullptr, volumeTest = std::getenv ("DA_VOLUME") != nullptr;
+    const double secs = volumeTest ? 40 : 31;
     const size_t n = (size_t) (sr * secs);
     std::mt19937 rng (3);
-    std::vector<float> gtr (n, 0.0f), noise (n, 0.0f);
+    std::vector<float> di (n, 0.0f), diNoise (n, 0.0f);
 
-    // ---- performance (first 2 s are just the amp humming)
-    const double E2 = 82.41, A2 = 110.0, D3 = 146.83, G3 = 196.0, B3 = 246.94, E4 = 329.63, F4 = 349.23;
-    auto chord = [&] (double t, std::initializer_list<double> fs, double dur, float amp, double sus, bool mute)
-    { double d = 0; for (double f : fs) { pluck (gtr, sr, t + d, f, dur, amp, sus, mute, rng); d += 0.012; } };
-    if (noLead) chord (0.0, { E2, 123.47, E2 * 2 }, 1.9, 0.2f, 3.0, false);
-    chord (2.0, { E2, 123.47, E2 * 2, G3 * 1.0, B3, E4 }, 7.0, 0.16f, 6.0, false);  // E major, let ring 7 s
-    pluck (gtr, sr, 10.0, F4, 3.5, 0.3f, 4.0, false, rng);                          // F4 single note (near a 50 Hz hum line)
-    pluck (gtr, sr, 14.0, A2, 3.0, 0.35f, 3.0, false, rng);
-    for (int i = 0; i < 12; ++i) chord (18.0 + i * 0.25, { E2, 123.47 }, 0.16, 0.35f, 0.5, true); // palm-mute chugs
-    pluck (gtr, sr, 22.0, D3, 6.5, 0.12f, 8.0, false, rng);                         // quiet, very long note
-    leadNote (gtr, sr, 25.5, 2 * G3, 5.3, 0.45f);
-    if (std::getenv ("DA_VOLUME")) pluck (gtr, sr, 41.5, E4, 2.0, 0.3f, 2.0, false, rng);                                   // bend + vibrato lead (distorted below)
-    { std::vector<float> dry = gtr; addTexture (gtr, dry, sr, rng); }
-    for (auto& v : gtr) v = std::tanh (v * 1.5f) / 1.5f;                              // a little amp grit
+    // ---- performance (DI)
+    const double E2 = 82.41, B2 = 123.47, E3 = 164.81, A3 = 220.0, G3 = 196.0;
+    struct Ev { double t0, t1; const char* what; };
+    std::vector<Ev> chugs, rings, chokes;
+    auto chord = [&] (double t, std::initializer_list<double> fs, double dur, float amp, double sus, float bright, double stopMs)
+    { double d = 0; for (double f : fs) { pluck (di, sr, t + d, f, dur, amp, sus, bright, stopMs, rng); d += 0.004; } };
+    chord (2.0, { E2, B2, E3 }, 5.5, 0.25f, 6.0, 0.5f, 30);                        // power chord, let it ring
+    rings.push_back ({ 2.0, 7.4, "power chord ring" });   // next event at 8.5 s
+    for (int i = 0; i < 16; ++i)                                                    // palm-mute 8ths @160
+    {
+        const double t = 8.5 + i * 0.1875;
+        chord (t, { E2, B2 }, 0.11, 0.3f, 0.35, 0.3f, 12);
+        chugs.push_back ({ t, t + 0.11, "8th chug" });
+    }
+    for (int i = 0; i < 20; ++i)                                                    // palm-mute 16ths @160
+    {
+        const double t = 12.0 + i * 0.09375;
+        chord (t, { E2, B2 }, 0.065, 0.3f, 0.3, 0.3f, 10);
+        chugs.push_back ({ t, t + 0.065, "16th chug" });
+    }
+    pluck (di, sr, 15.0, A3, 4.5, 0.2f, 5.0, 0.5f, 30, rng);                       // single note, let it ring
+    rings.push_back ({ 15.0, 18.9, "single note ring" });   // stabs start at 20 s
+    for (int i = 0; i < 4; ++i)                                                     // chord stabs, hand-choked
+    {
+        const double t = 20.0 + i * 1.0;
+        chord (t, { E2, B2, E3, G3 }, 0.35, 0.25f, 4.0, 0.5f, 8);
+        chokes.push_back ({ t, t + 0.35, "choked stab" });
+    }
+    pluck (di, sr, 25.0, 2 * G3, 4.0, 0.25f, 3.0, 0.55f, 40, rng);                 // lead note fading out
+    rings.push_back ({ 25.0, 29.0, "lead note fade" });
 
-    // ---- amp noise: mains hum + rectifier buzz + hiss
+    // ---- DI noise: pickup hum/buzz + hiss (the volume test turns the guitar off and on again)
     std::normal_distribution<float> nd (0, 1);
-    float lp1 = 0, lp2 = 0;
     for (size_t i = 0; i < n; ++i)
     {
         const double t = (double) i / sr;
-        double hum = 0;
-        for (int k = 1; k <= 12; ++k)
-            hum += std::pow (10.0, (-56.0 - 4.0 * (k - 1) - (k % 2 == 0 ? 0 : 3)) / 20.0) * std::sin (2 * kPi * k * mains * t + k * 0.7);
-        // buzz: sharp pulses at 2x mains (full-wave rectifier charging current)
-        const double ph = std::fmod (t * mains * 2.0, 1.0);
-        const double buzz = std::exp (-ph * 60.0) * 0.0012;
-        lp1 += 0.35f * (nd (rng) - lp1); lp2 += 0.35f * (lp1 - lp2);
-        const float hiss = lp2 * 0.0011f;
-        // pickup noise (single-coil buzz + hiss) follows the guitar's volume knob
         float vol = 1.0f;
-        if (std::getenv ("DA_VOLUME")) vol = (t > 33.5 && t < 36.5) ? 0.0f : 1.0f;
-        const double pickup = vol * (0.0015 * std::sin (2 * kPi * 3 * mains * t) + 0.0010 * std::sin (2 * kPi * 5 * mains * t + 1.0)
-                                     + 0.0006 * std::sin (2 * kPi * 7 * mains * t + 2.0) + 0.0008 * nd (rng));
-        noise[i] = noHum ? hiss : (float) (hum + buzz + (std::getenv ("DA_VOLUME") ? pickup : 0.0)) + hiss;
+        if (volumeTest && t > 31.0 && t < 34.0) vol = 0.0f;
+        const double hum = 0.00012 * std::sin (2 * kPi * 60.02 * t) + 0.00008 * std::sin (2 * kPi * 180.06 * t + 1)
+                         + 0.00005 * std::sin (2 * kPi * 300.1 * t + 2);
+        diNoise[i] = (float) (vol * hum + vol * 0.00010 * nd (rng) + 0.00003 * nd (rng));   // last term: interface hiss
     }
-    double mean = 0; for (float v : noise) mean += v; mean /= n; for (auto& v : noise) v -= (float) mean;
 
-    std::vector<float> in (n), y (n);
-    for (size_t i = 0; i < n; ++i) in[i] = gtr[i] + noise[i];
-    y = in;
+    // ---- through the amp sim: with noise (what the plugin gets) and without (the reference)
+    AmpSim simA, simB; simA.gain = simB.gain = ampGain;
+    std::vector<float> in (n), clean (n);
+    for (size_t i = 0; i < n; ++i) { in[i] = simA.tick (di[i] + diNoise[i], sr); clean[i] = simB.tick (di[i], sr); }
 
-    const int quality = argc > 4 ? std::atoi (argv[4]) : 0;   // latency mode: 0 = ~11 ms (the plugin), 1 = ~21, 2 = ~43
-    (void) quality;
+    std::vector<float> y = in, y2 = in;
     Engine eng; eng.prepare (sr); eng.setTightness (tight);
     const int lat = eng.latencySamples();
-    std::vector<float> y2 = y;
-    const auto t0 = std::chrono::steady_clock::now();
+    const auto c0 = std::chrono::steady_clock::now();
     for (size_t i = 0; i < n; i += 256)
     {
-        if (std::getenv ("DA_RELEARN") && i <= (size_t) (36.7 * sr) && i + 256 > (size_t) (36.7 * sr)) eng.requestRelearn();   // press Relearn
+        if (std::getenv ("DA_RELEARN") && i <= (size_t) (34.7 * sr) && i + 256 > (size_t) (34.7 * sr)) eng.requestRelearn();
         eng.process (y.data() + i, stereo ? y2.data() + i : nullptr, (int) std::min<size_t> (256, n - i));
-        if (std::getenv ("DA_TRACE") && (i / 256) % 94 == 0)
-            std::printf ("  t=%5.2f state %d floor %6.1f in %6.1f mains %.3f lines %d\n", (double) i / sr, eng.tele.state.load(), eng.tele.floorDb.load(), eng.tele.inDb.load(), eng.tele.mainsHz.load(), eng.tele.humLines.load());
+        if (std::getenv ("DA_TRACE") && (i / 256) % (std::getenv ("DA_FINE") ? 4 : 47) == 0 && (double) i / sr >= std::atof (std::getenv ("DA_TRACE")) && (double) i / sr < std::atof (std::getenv ("DA_TRACE")) + 4)
+            std::printf ("  t=%5.2f state %d floor %6.1f in %6.1f level %+5.1f dB  clampAgo %.2f\n", (double) i / sr, eng.tele.state.load(), eng.tele.floorDb.load(), eng.tele.inDb.load(), eng.tele.levelDb.load(), eng.tele.clampAgo.load());
     }
-    const double cpu = std::chrono::duration<double> (std::chrono::steady_clock::now() - t0).count();
-    std::printf ("cpu: %.2f%% of one core (%s)\n", 100.0 * cpu / secs, stereo ? "stereo" : "mono");
-    if (stereo) { double d = 0; for (size_t i = 0; i < n; ++i) d = std::max (d, (double) std::abs (y[i] - y2[i])); std::printf ("stereo L/R max difference (identical inputs): %g\n", d); }
+    const double cpu = std::chrono::duration<double> (std::chrono::steady_clock::now() - c0).count();
+    std::vector<float> o (n, 0.0f);
+    for (size_t i = 0; i + lat < n; ++i) o[i] = y[i + lat];
 
-    // align output to input
-    std::vector<float> outA (n, 0.0f);
-    for (size_t i = 0; i + lat < n; ++i) outA[i] = y[i + lat];
-
-    auto rmsDb = [&] (const std::vector<float>& x, double a, double b)
+    auto rms = [&] (const std::vector<float>& x, double a, double b)
     {
-        double s = 0; size_t i0 = (size_t) (a * sr), i1 = (size_t) (b * sr);
-        for (size_t i = i0; i < i1; ++i) s += (double) x[i] * x[i];
-        return 10.0 * std::log10 (s / (double) (i1 - i0) + 1e-30);
+        size_t i0 = (size_t) std::max (0.0, a * sr), i1 = std::min (n, (size_t) (b * sr));
+        double s = 0; for (size_t i = i0; i < i1; ++i) s += (double) x[i] * x[i];
+        return 10.0 * std::log10 (s / std::max<size_t> (1, i1 - i0) + 1e-30);
     };
-    std::printf ("latency %d samples (%.1f ms) | mains %.2f Hz | tightness %.2f\n", lat, 1000.0 * lat / sr, mains, tight);
-    std::printf ("engine: mains detected %.3f Hz, %d hum lines notched\n", (double) eng.tele.mainsHz.load(), eng.tele.humLines.load());
+    const double noiseDb = rms (in, 0.5, 1.9);   // what the noise floor sounds like after the sim
+    std::printf ("cpu %.2f%% of one core | latency %d samples (%.1f ms) | release %.2f | amp gain %.0f | noise floor after sim %.1f dBFS\n",
+                 100.0 * cpu / secs, lat, 1000.0 * lat / sr, tight, ampGain, noiseDb);
+    if (stereo) { double d = 0; for (size_t i = 0; i < n; ++i) d = std::max (d, (double) std::abs (y[i] - y2[i])); std::printf ("stereo L/R max difference: %g\n", d); }
 
-    // noise in gaps: compare with the noise-only signal over regions where the guitar is silent
-    std::printf ("\nGAPS (noise only)     input    output   reduction\n");
-    const double gaps[][2] = { { 1.0, 1.9 }, { 9.3, 9.9 }, { 13.6, 13.95 }, { 17.2, 17.95 }, { 31.3, 33.5 } };
-    for (auto& g : gaps)
+    // time at which a signal (1 ms windows) is last above a level, searching from a..b
+    auto lastAbove = [&] (const std::vector<float>& x, double a, double b, double levelDb)
     {
-        const double a = rmsDb (in, g[0], g[1]), b = rmsDb (outA, g[0], g[1]);
-        std::printf ("  %5.1f-%5.1f s     %7.1f  %8.1f   %6.1f dB\n", g[0], g[1], a, b, a - b);
+        double last = a;
+        for (double t = a; t < b; t += 0.001) if (rms (x, t, t + 0.001) > levelDb) last = t + 0.001;
+        return last;
+    };
+
+    // ---- palm mutes: noise heard after the chug has died into the noise
+    double sum8 = 0, max8 = 0, sum16 = 0, max16 = 0; int c8 = 0, c16 = 0;
+    for (size_t k = 0; k < chugs.size(); ++k)
+    {
+        const double next = k + 1 < chugs.size() && chugs[k + 1].t0 > chugs[k].t0 ? chugs[k + 1].t0 : chugs[k].t1 + 0.25;
+        const double cleanEnd = lastAbove (clean, chugs[k].t0, next, noiseDb);        // chug reaches the noise floor
+        const double outEnd = lastAbove (o, chugs[k].t0, next, noiseDb - 20.0);       // output is 20 dB under the noise
+        const double leak = std::max (0.0, outEnd - cleanEnd) * 1000.0;
+        if (std::getenv ("DA_LIST") && leak > 15) std::printf ("   chug %zu at %.3f s: clean dies %.3f, output silent %.3f -> leak %.0f ms\n", k, chugs[k].t0, cleanEnd, outEnd, leak);
+        if (chugs[k].what[0] == '8') { sum8 += leak; max8 = std::max (max8, leak); ++c8; }
+        else { sum16 += leak; max16 = std::max (max16, leak); ++c16; }
+    }
+    std::printf ("\nPALM MUTES  noise heard after the chug dies:  8ths avg %.1f ms (max %.1f)   16ths avg %.1f ms (max %.1f)\n",
+                 sum8 / c8, max8, sum16 / c16, max16);
+    double chokeLeak = 0;
+    for (auto& e : chokes)
+    {
+        const double cleanEnd = lastAbove (clean, e.t0, e.t0 + 0.95, noiseDb);
+        const double oe = lastAbove (o, e.t0, e.t0 + 0.95, noiseDb - 20.0);
+        if (std::getenv ("DA_LIST")) std::printf ("   stab at %.2f s: clean dies %.3f, output silent %.3f\n", e.t0, cleanEnd, oe);
+        chokeLeak = std::max (chokeLeak, (oe - cleanEnd) * 1000.0);
+    }
+    std::printf ("CHOKED STABS noise heard after the choke: max %.1f ms\n", chokeLeak);
+
+    // ---- sustain: gate closes vs when the note actually reaches the noise floor
+    std::printf ("SUSTAIN (gate close time minus when the note reaches the noise floor; negative = cut early)\n");
+    for (auto& e : rings)
+    {
+        const double cleanEnd = lastAbove (clean, e.t0, e.t1 + 1.0, noiseDb - 3.0);
+        const double outEnd = lastAbove (o, e.t0, e.t1 + 1.0, noiseDb - 20.0);
+        std::printf ("   %-18s note reaches noise at %.2f s, gate closed at %.2f s  ->  %+5.0f ms\n", e.what, cleanEnd, outEnd, (outEnd - cleanEnd) * 1000.0);
     }
 
-    // sustain: windows where clean guitar is above the noise; error between output and clean
-    std::printf ("\nSUSTAIN (clean guitar vs output, 250 ms windows)\n  time   clean   in+noise  output   err-vs-clean\n");
-    const double check[] = { 2.5, 4, 6, 7.5, 8.5, 8.9, 10.5, 12, 13, 13.4, 14.5, 16, 16.8, 22.5, 25, 27, 28.3, 29.5, 29.9 };
-    for (double t : check)
+    // ---- transparency: any gain change while clearly playing (clean > noise + 10 dB)?
+    int windows = 0, touched = 0; double worst = 0;
+    for (double t = 2.0; t < 29.0; t += 0.005)
     {
-        std::vector<float> err (n);
-        size_t i0 = (size_t) (t * sr), i1 = (size_t) ((t + 0.25) * sr);
-        double e = 0; for (size_t i = i0; i < i1; ++i) { const double d = outA[i] - gtr[i]; e += d * d; }
-        const double errDb = 10 * std::log10 (e / (i1 - i0) + 1e-30);
-        const double c = rmsDb (gtr, t, t + 0.25);
-        std::printf ("  %4.1f  %6.1f  %7.1f   %7.1f    %6.1f dB below\n", t, c, rmsDb (in, t, t + 0.25), rmsDb (outA, t, t + 0.25), c - errDb);
+        if (rms (clean, t, t + 0.005) < noiseDb + 10.0) continue;
+        ++windows;
+        const double d = rms (o, t, t + 0.005) - rms (in, t, t + 0.005);
+        if (d < -0.1) { ++touched; if (std::getenv ("DA_LIST")) std::printf ("   touched at %.3f s: %.2f dB (clean %.1f, noise %.1f)\n", t, d, rms (clean, t, t + 0.005), noiseDb); }
+        worst = std::min (worst, d);
     }
+    std::printf ("TRANSPARENCY while playing: %d of %d 5 ms windows changed (worst %.2f dB)\n", touched, windows, worst);
 
-    if (std::getenv ("DA_VOLUME"))
+    // ---- attacks
+    double atk = 0;
+    for (auto& e : chugs) atk = std::min (atk, rms (o, e.t0, e.t0 + 0.005) - rms (in, e.t0, e.t0 + 0.005));
+    std::printf ("ATTACKS: worst first-5 ms level change %.2f dB\n", atk);
+
+    // ---- gaps
+    std::printf ("GAPS: 0.5-1.9 s (learning) %.1f dB | 29.5-30.8 s %.1f dB  (input %.1f)\n", rms (o, 0.5, 1.9), rms (o, 29.5, 30.8), noiseDb);
+    if (volumeTest)
     {
-        std::printf ("\nVOLUME KNOB: off 33.5-36.5 s, back up at 36.5 (nobody playing), note at 41.5\n  output level per 0.5 s from 33.5 s:");
-        for (double t = 33.5; t < 41.5; t += 0.5) std::printf (" %.0f", rmsDb (outA, t, t + 0.5));
-        std::printf ("\n  input  level per 0.5 s from 33.5 s:");
-        for (double t = 33.5; t < 41.5; t += 0.5) std::printf (" %.0f", rmsDb (in, t, t + 0.5));
+        std::printf ("VOLUME KNOB off 31-34 s, back up at 34 (nobody playing). Output per 0.5 s from 31 s:");
+        for (double t = 31.0; t < 40.0; t += 0.5) std::printf (" %.0f", std::max (-99.0, rms (o, t, t + 0.5)));
+        std::printf ("\n   input per 0.5 s:                                                ");
+        for (double t = 31.0; t < 40.0; t += 0.5) std::printf (" %.0f", rms (in, t, t + 0.5));
         std::printf ("\n");
     }
-    std::vector<float> removed (n); for (size_t i = 0; i < n; ++i) removed[i] = in[i] - outA[i];
+
+    std::vector<float> removed (n);
+    for (size_t i = 0; i < n; ++i) removed[i] = in[i] - o[i];
     writeWav (out + "/before.wav", in, sr);
-    writeWav (out + "/after.wav", outA, sr);
+    writeWav (out + "/after.wav", o, sr);
     writeWav (out + "/removed.wav", removed, sr);
-    writeWav (out + "/clean.wav", gtr, sr);
+    writeWav (out + "/clean.wav", clean, sr);
     return 0;
 }

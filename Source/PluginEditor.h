@@ -27,9 +27,6 @@ private:
     std::vector<float> in, noise, out;
     float binHz = 0;
     int bins = 0;
-    double mainsHz = 0;
-    int humLines = 0;
-    std::uint64_t humMask = 0;
 };
 
 class BuzzKillEditor : public juce::AudioProcessorEditor, private juce::Timer

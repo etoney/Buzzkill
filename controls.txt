@@ -3,39 +3,36 @@
   Castle Danger Music Company
 ===============================================================================
 
-BuzzKill needs no setup. Put it FIRST on your guitar track (before reverb or
-delay), press play, and let it hear a second of your amp with nobody playing.
-It learns the noise by itself and keeps re-learning as the song goes.
-
-Tip: the start of a take (before you play) is usually all it needs. If you
-start playing on the very first beat, it learns at the first gap instead and
-passes the audio untouched until then.
+BuzzKill needs no setup. Put it right after your amp sim (before reverb and
+delay), press play, and let it hear a second of noise with nobody playing. It
+learns the noise by itself and works with any amp sim, at any gain.
 
 
 -------------------------------------------------------------------------------
-WHAT IT DOES ON ITS OWN
+HOW IT BEHAVES
 -------------------------------------------------------------------------------
-  TRANSPARENT    Your audio is never split up or filtered. It passes through
-                 one smooth volume gate, so when the gate is open you hear
-                 exactly what went in (minus the hum).
+  WHILE YOU PLAY   Nothing happens. No gating, no filtering: your signal passes
+                   untouched.
 
-  NOISE FLOOR    Learns your amp's noise by itself whenever nobody is playing,
-                 and keeps re-learning. If the noise changes and then holds
-                 steady for about 2 seconds (e.g. you turned the guitar's volume
-                 knob back up), it adopts the new noise automatically.
+  PALM MUTES,      When you stop a note abruptly, the level crashes toward the
+  CHOKES, STOPS    noise floor far faster than any natural decay. BuzzKill sees
+                   that and clamps shut within a few milliseconds, so there is no
+                   burst of noise before the gate closes. Then it stays shut
+                   until you actually play again (a stray noise peak can't reopen it).
 
-  HUM + BUZZ     Detects mains hum (50 or 60 Hz) and its harmonics up to about
-                 2.5 kHz (that's the buzz), tracks the exact frequency, and
-                 cancels each line with an inverted copy, even while you play.
-                 A watchdog mutes any line that would ever ADD hum, so the worst
-                 case is the original hum, never more.
+  LETTING NOTES    When a note rings out, BuzzKill listens to its harmonics all
+  RING             the way down, even when they are below the hiss, and keeps
+                   the gate open while any of them is still there. Then it
+                   closes gently (the RELEASE knob sets how gently).
 
-  SUSTAIN        A detailed analysis listens for your note's harmonics far below
-                 the hiss level, and keeps the gate open for as long as any of
-                 them is still there. Then it closes gently to true silence.
+  ATTACKS          A 5 ms look-ahead opens the gate just before your pick hits,
+                   so attacks are never clipped.
 
-  ATTACKS        A 5 ms look-ahead opens the gate just before your pick hits,
-                 so attacks are never clipped.
+  NOISE CHANGES    If the noise changes and then holds perfectly still for about
+                   2 seconds with no picking (guitar volume knob turned back up,
+                   new amp-sim preset), BuzzKill adopts the new noise by itself.
+                   RELEARN does it instantly.
+
 
 -------------------------------------------------------------------------------
 THE DISPLAY
@@ -47,11 +44,13 @@ THE DISPLAY
 
   STATUS          LISTENING   learning the noise (first second or so)
                   PLAYING     gate open: your signal passes untouched
+                  LETTING GO  a note has faded into the noise; closing gently
                   LETTING GO  following a note's tail down into the noise
                   BUZZ KILLED nothing playing; silence
 
   NOISE FLOOR     The learned noise level in dBFS.
-  HUM             Detected mains frequency and how many hum lines are locked.
+  GATE            Open (and how far your signal is above the noise), closing,
+                  closed, or "fast clamp" right after a palm mute or choke.
   NOISE CUT       How far the noise is being turned down right now.
 
 
@@ -59,12 +58,12 @@ THE DISPLAY
 CONTROLS (all optional)
 -------------------------------------------------------------------------------
   RELEASE (Natural <-> Tight)
-      How a note is let go once it sinks into the noise.
-      Natural  long, gentle tails. Best for clean tones, chords, ambient
-               playing and solos where you want every bit of sustain.
-      Tight    fast cut. Best for high-gain rhythm and palm-mute chugs where
-               the gaps should be dead silent instantly.
-      Default is 35% (leaning natural). Double-click the knob to reset.
+      How quickly the gate closes after a ringing note has faded into the
+      noise. It never cuts a note that is still there, and palm mutes and
+      chokes clamp fast at any setting.
+      Natural  gentle ~150 ms fade after the note is gone.
+      Tight    closes ~10 ms after the note is gone.
+      Default is 35%. Double-click the knob to reset.
 
   RELEARN
       Forgets the learned noise and listens again. Press it with nobody

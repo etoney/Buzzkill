@@ -1,25 +1,29 @@
-# BuzzKill: intelligent guitar noise gate
+# BuzzKill: dynamic guitar noise gate
 
-A zero-setup noise gate for electric guitar (VST3 / AU / Standalone, built with JUCE 8.0.15) by Castle Danger Music Company. It learns your amp's noise floor by itself, cancels mains hum and buzz, and removes noise **without cutting your sustain**.
+A zero-setup dynamic noise gate for electric guitar, made to sit right after an amp sim in a DAW (VST3 / AU / Standalone, built with JUCE 8.0.15) by Castle Danger Music Company. While you play it does nothing. When you stop, it closes as soon as the level reaches the noise floor: within milliseconds for palm mutes and chokes, and only after the last harmonic is gone for notes you let ring.
 
 ## How it works
-| Stage | What it does |
+| Part | What it does |
 |---|---|
-| **Transparent path** | The audio is never split into frequency bands. It has the hum lines subtracted and passes through one smooth volume gate, so whatever is let through is the untouched signal. 5 ms look-ahead. |
-| **Noise learning** | A 2048-point analysis tracks the long-term floor; moments at that floor that hold steady are learned as the noise. If the noise changes and the whole spectrum then holds perfectly still for 2 s (e.g. guitar volume knob turned back up), the new noise is adopted automatically. **Relearn** forces it. |
-| **Hum + buzz canceller** | Detects 50/60 Hz mains and which of its first 40 harmonics (to ~2.5 kHz) stand above the hiss. Each line is demodulated against an oscillator locked to the measured mains frequency (read only in truly quiet moments), its amplitude and phase are held while you play, and a synthesised copy is subtracted. After a long hold the leftover is re-measured over 3 mains cycles while cancelling continues. A watchdog mutes any line whose cancellation would make it louder. |
-| **Detector** | The analysis hears each note's harmonics far below the broadband hiss (smoothed decision-directed SNR per band, 30 ms persistence so noise can't open it, strict rules near hum lines). A 1 ms transient detector catches pick attacks inside the look-ahead. |
-| **Gate** | One gain for the whole signal: opens in under a millisecond, holds while any harmonic remains, releases per the **Release** knob (Natural ~250 ms to Tight ~15 ms) to true silence. |
+| **Audio path** | The look-ahead-delayed input times one smooth gain. Nothing is filtered or subtracted. 5 ms look-ahead. |
+| **Fast level** | Peak of the signal over the last 10 ms (always holds a waveform peak of any note down to 50 Hz, so low notes don't ripple, but drops at once when the sound stops). Compared to the *peaks* of the learned noise, because buzz after a high-gain sim is spiky. |
+| **Abrupt-stop clamp** | A peak tracker falls at 250 dB/s, faster than any natural decay. If the level drops 12 dB+ below it *and* is at the noise, the stop was abrupt (palm mute / choke): the gate clamps in ~2 ms and the analysis is wiped for longer than its window, so it can't hold the gate open from memory. |
+| **Tail detector** | 2048-point analysis with per-band smoothed (decision-directed) SNR against the learned noise spectrum, 30 ms persistence. Keeps the gate open while any harmonic of a ringing note is above the noise in its band. |
+| **Hysteresis** | Open: anything above the noise keeps it open. Closed: only playing 8 dB over the noise peaks, or a confirmed note in the analysis, reopens it. |
+| **Noise learning** | Learned automatically in quiet moments. Re-learned automatically when the spectrum holds still for 2 s with no pick attack for 3 s (volume knob, preset change). **Relearn** button: ready in ~0.5 s. |
 
-Controls (all optional): **Release** (Natural ↔ Tight), **Relearn**, **Hear Removed**. Latency: 5 ms.
+Controls (all optional): **Release** (Natural ↔ Tight, how gently it closes after a ringing note has gone), **Relearn**, **Hear Removed**. Latency: 5 ms.
 
-## Measured (offline test: synthetic guitar with texture, 60 Hz hum, rectifier buzz, hiss)
-- Gate open: guitar texture level within 0.1–0.2 dB of untouched, frame-to-frame variation identical to untouched (no filtering, no wah)
-- Gaps: digital silence (60–240 dB reduction) at the default setting
-- Guitar volume turned back up with nobody playing: silent again in ~3 s on its own, under 1 s with Relearn
-- CPU: ~3% of one core at 48 kHz
+## Measured (offline test: DI guitar with pickup hum + hiss through a high-gain amp sim)
+- While playing: 0 of 2,873 5 ms windows changed (completely transparent); attacks 0.00 dB
+- Palm-mute 8ths @160: 0 ms of noise after each chug; 16ths @160: 0.4 ms avg (9 ms max)
+- Hand-choked stabs: 4–8 ms of noise after the choke
+- Ringing notes are never cut early; the gate closes 80–300 ms after the note reaches the noise (Tight ↔ default)
+- Same results at amp-sim gain 15, 60 and 200; at 48 and 96 kHz; mono and stereo
+- Guitar volume back up with nobody playing: silent again ~3 s later on its own, ~0.5 s with Relearn
+- CPU: ~1% of one core at 48 kHz
 
-Run it yourself: `cmake --build build --target buzzkill_render && ./build/buzzkill_render out_dir [mains_hz] [release 0..1]` (writes before/after/removed WAVs; `DA_VOLUME=1` adds the volume-knob scenario).
+Run it yourself: `cmake --build build --target buzzkill_render && ./build/buzzkill_render out_dir [release 0..1] [amp gain]` (writes before/after/removed/clean WAVs; `DA_VOLUME=1` adds the volume-knob scenario).
 
 ## Building
 Requirements: CMake 3.22+, Git, and a C++17 compiler. JUCE 8.0.15 is downloaded automatically (same version as DREAD).
