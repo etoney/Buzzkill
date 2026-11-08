@@ -104,18 +104,20 @@ struct HumCanceller
     int sliceLen = 4800, sliceCount = 0;
     bool prevValid = false;
     double measNum = 0, measDen = 0, sliceSeconds = 0.1;
+    std::complex<double> reacqAcc[K] {};
+    int reacqLen = 0, reacqLeft = 0;
     int measCount = 0;
 
     void reset()
     {
         for (int k = 0; k < K; ++k)
         {
-            osc[k] = { 1.0, 0.0 }; rot[k] = { 1.0, 0.0 }; enabled[k] = false; depth[k] = 0;
+            osc[k] = { 1.0, 0.0 }; rot[k] = { 1.0, 0.0 }; enabled[k] = false; depth[k] = 0; reacqAcc[k] = 0;
             for (int j = 0; j < 4; ++j) { st[k][j] = 0; snap[0][k][j] = snap[1][k][j] = 0; }
         }
         active = 0;
         for (int k = 0; k < KF; ++k) slice[k] = prevSlice[k] = 0;
-        sliceCount = 0; prevValid = false; measNum = measDen = 0; measCount = 0;
+        sliceCount = 0; prevValid = false; measNum = measDen = 0; measCount = 0; reacqLeft = 0;
     }
     void tune (double fs, double f0, int numHarmonics)
     {
@@ -126,6 +128,16 @@ struct HumCanceller
         for (int k = 0; k < active; ++k) rot[k] = std::polar (1.0, 2.0 * kPi * f0 * (k + 1) / fs);
     }
     std::complex<double> estimate (int k) const { return st[k][3]; }
+
+    // After a long hold, the held estimate may have drifted in phase. Measure each line afresh
+    // over exactly a whole number of mains cycles (which separates the harmonics cleanly) and
+    // restart the smoothing from that, instead of slowly converging from a stale value.
+    void beginReacquire (int samples)
+    {
+        reacqLen = reacqLeft = std::max (1, samples);
+        for (auto& v : reacqAcc) v = 0;
+    }
+    bool reacquiring() const { return reacqLeft > 0; }
 
     void finishSlice()
     {
@@ -176,7 +188,8 @@ struct HumCanceller
             if (a > 0)
             {
                 const std::complex<double> d = (double) x * std::conj (osc[k]);
-                s[0] += a * (d - s[0]); s[1] += a * (s[0] - s[1]); s[2] += a * (s[1] - s[2]); s[3] += a * (s[2] - s[3]);
+                if (reacqLeft > 0) reacqAcc[k] += d;
+                else { s[0] += a * (d - s[0]); s[1] += a * (s[0] - s[1]); s[2] += a * (s[1] - s[2]); s[3] += a * (s[2] - s[3]); }
                 if (k < KF) slice[k] += d;
             }
             if (enabled[k]) hum += 2.0 * depth[k] * (s[3] * osc[k]).real();
@@ -185,6 +198,12 @@ struct HumCanceller
         if (++renorm >= 2048) { renorm = 0; for (int k = 0; k < active; ++k) osc[k] /= std::abs (osc[k]); }
         if (a > 0)
         {
+            if (reacqLeft > 0 && --reacqLeft == 0)
+                for (int k = 0; k < active; ++k)
+                {
+                    const auto v = reacqAcc[k] / (double) reacqLen;
+                    for (int j = 0; j < 4; ++j) st[k][j] = v;
+                }
             if (++sliceCount >= sliceLen) finishSlice();
         }
         else if (sliceCount > 0 || prevValid) { sliceCount = 0; prevValid = false; for (auto& v : slice) v = 0; }
@@ -377,33 +396,41 @@ class Engine
 public:
     Telemetry tele;
 
-    // quality 0 = low latency (~11 ms), 1 = balanced (~21 ms), 2 = studio (~43 ms)
-    void prepare (double sampleRate, int quality = 1)
+    // Analysis always uses a long window (~43 ms) so faint note tails can be told apart from the
+    // noise. The audio itself is processed through a short window, which sets the latency:
+    // latency 0 = ~11 ms, 1 = ~21 ms, 2 = ~43 ms
+    void prepare (double sampleRate, int latency = 0)
     {
         fs = sampleRate;
-        const int base = 512 << std::clamp (quality, 0, 2);
-        N = fs <= 56000 ? base : (fs <= 112000 ? base * 2 : base * 4);
-        H = N / 4; B = N / 2 + 1;
-        fft.init (N);
-        win.resize ((size_t) N);
-        for (int j = 0; j < N; ++j) win[(size_t) j] = (float) std::sin (kPi * j / N);   // sqrt-Hann
+        const int scale = fs <= 56000 ? 1 : (fs <= 112000 ? 2 : 4);
+        N = 2048 * scale;
+        Ns = (512 << std::clamp (latency, 0, 2)) * scale;
+        H = Ns / 4; B = N / 2 + 1; Bs = Ns / 2 + 1;
+        fft.init (N); fftS.init (Ns);
+        win.resize ((size_t) N); winS.resize ((size_t) Ns);
+        for (int j = 0; j < N; ++j) win[(size_t) j] = (float) std::sin (kPi * j / N);     // sqrt-Hann
+        for (int j = 0; j < Ns; ++j) winS[(size_t) j] = (float) std::sin (kPi * j / Ns);
         winPow = 0; winSum = 0; for (float v : win) { winPow += v * v; winSum += v; }
 
-        for (int c = 0; c < 2; ++c) { inRing[c].assign ((size_t) N, 0); rawRing[c].assign ((size_t) N, 0); outRing[c].assign ((size_t) N, 0); }
-        frame.assign ((size_t) N, cpx {});
+        for (int c = 0; c < 2; ++c) { inRing[c].assign ((size_t) N, 0); rawRing[c].assign ((size_t) N, 0); outRing[c].assign ((size_t) Ns, 0); }
+        frame.assign ((size_t) N, cpx {}); frameS.assign ((size_t) Ns, cpx {}); gainS.assign ((size_t) Bs, 1.0f);
         P.assign ((size_t) B, 0); Psm.assign ((size_t) B, 0); noise.assign ((size_t) B, 0);
         gain.assign ((size_t) B, 1); gainTarget.assign ((size_t) B, 1); open.assign ((size_t) B, 0); humBin.assign ((size_t) B, 0); humNear.assign ((size_t) B, -1);
         noiseRaw.assign ((size_t) B, 0); ref.assign ((size_t) B, 0); rawFrame.assign ((size_t) N, cpx {});
-        tmp.assign ((size_t) B, 0);
+        tmp.assign ((size_t) B, 0); masked.assign ((size_t) B, 0); pending.assign ((size_t) B, 0);
+        cumP.assign ((size_t) B + 1, 0); cumR.assign ((size_t) B + 1, 0); xiPrev.assign ((size_t) B, 0);
 
         hunter.prepare (fs);
         for (auto& hc : canceller) hc.reset();
         hunterVersion = -1; tunedHz = 0; tunedSeries = -1; humCount = 0; sigmaF = 0.05; frozenSec = 0;
         for (auto& d : humDepth) d = 0;
+        for (auto& v : offVotes) v = 0;
         aQuiet = 1.0 - std::exp (-2.0 * kPi * 3.0 / fs);    // 3 Hz smoothing while quiet: locks on in ~0.2 s
         humQuiet = false;
 
         framesPerSec = (float) (fs / H);
+        ddBeta = std::exp (-1.0f / (0.06f * framesPerSec));
+        pendFrames = std::max (2, (int) std::lround (0.02f * framesPerSec));
         subLen = std::max (1, (int) (0.5f * framesPerSec));
         slowCoef = 1.0f - std::exp (-1.0f / (0.08f * framesPerSec));
         hist.assign ((size_t) std::max (1, (int) framesPerSec), -150.0f);   // 1 s of frame levels
@@ -424,13 +451,15 @@ public:
         std::fill (Psm.begin(), Psm.end(), 0.0f);
         std::fill (gain.begin(), gain.end(), 1.0f);
         std::fill (open.begin(), open.end(), 0);
+        std::fill (pending.begin(), pending.end(), 0);
+        std::fill (xiPrev.begin(), xiPrev.end(), 0.0f);
         floorDb = 0; floorInit = false; learnedFrames = 0; learned = false; engage = 0;
         frames = 0; subMin = 1000; std::fill (subMins, subMins + kSubs, 1000.0f);
         subIdx = 0; subCount = 0; openness = 0; holdLeft = 0; histIdx = 0; quiet = false;
         std::fill (hist.begin(), hist.end(), -150.0f);
     }
 
-    int latencySamples() const { return N; }
+    int latencySamples() const { return Ns; }
 
     // 0 = natural (long, gentle tails), 1 = tight (fast cut for palm mutes)
     void setTightness (float t)
@@ -462,14 +491,15 @@ public:
             const double a = humQuiet ? aQuiet : 0.0;   // frozen while playing
             for (int c = 0; c < nch; ++c) hummed[c] = canceller[c].tick (in[c], a);
 
-            // ---- STFT stream (latency = N samples)
+            // ---- STFT stream (latency = Ns samples)
+            const size_t oi = (size_t) (pos % Ns);
             for (int c = 0; c < nch; ++c)
             {
-                const float dry = rawRing[c][(size_t) pos];
-                const float wet = outRing[c][(size_t) pos];
+                const float dry = rawRing[c][(size_t) ((pos + N - Ns) % N)];
+                const float wet = outRing[c][oi];
                 rawRing[c][(size_t) pos] = in[c];
                 inRing[c][(size_t) pos] = hummed[c];
-                outRing[c][(size_t) pos] = 0;
+                outRing[c][oi] = 0;
                 ch[c][i] = listenRemoved ? dry - wet : wet;
             }
             if (++pos >= N) pos = 0;
@@ -491,7 +521,12 @@ private:
         {
             if (f0 * (k + 1) > std::min (1000.0, fs * 0.45)) break;
             count = k + 1;
-            const bool on = hunter.attenuationDb (k) >= 3.0f;
+            // lines switch on at once, but only switch off after several blocks in a row without
+            // hum (one block disturbed by a fading note must not drop a line)
+            const float a = hunter.attenuationDb (k);
+            bool on = canceller[0].enabled[k];
+            if (a >= 3.0f) { on = true; offVotes[k] = 0; }
+            else if (on && a < 1.0f && ++offVotes[k] >= 4) on = false;
             for (auto& hc : canceller) hc.enabled[k] = on;
             if (on) ++lines;
         }
@@ -543,7 +578,8 @@ private:
             for (auto& hc : canceller)
             {
                 double& d = hc.depth[k];
-                d += (target - d) * std::min (1.0, n / (0.05 * fs));
+                if (hc.reacquiring()) d = 0;
+                else d += (target - d) * std::min (1.0, n / (0.03 * fs));
             }
             humDepth[k] = (float) canceller[0].depth[k];
         }
@@ -584,7 +620,7 @@ private:
         }
 
         // smoothing across frequency, then time
-        const float aT = 0.7f;
+        const float aT = std::exp (-1.0f / (0.01f * framesPerSec));
         double total = 0;
         for (int b = 0; b < B; ++b)
         {
@@ -638,20 +674,50 @@ private:
             ref[(size_t) b] = noise[(size_t) b] + undone * std::max (0.0f, noiseRaw[(size_t) b] - noise[(size_t) b]);
         }
         const float openLin = std::pow (10.0f, openThrDb / 10.0f), closeLin = std::pow (10.0f, closeThrDb / 10.0f);
+        const float strongLin = openLin * 4.0f;   // +6 dB: opens at once (pick attacks)
         const int bLo = std::max (1, (int) (60.0 * N / fs)), bHi = std::min (B - 1, (int) (12000.0 * N / fs));
         const int bHum = std::max (bLo, (int) (1100.0 * N / fs));   // hum lines stay below this
         int openCount = 0, openHigh = 0, openMusic = 0;
         double hiE = 0, hiN = 0;
+
+        // local masking: level of the music vs the noise over about a third of an octave around
+        // each band. Where the guitar is far above the noise, the noise is inaudible, so nothing
+        // there is gated (gating loud playing only carves the guitar's own texture and makes
+        // phasey, wah-like movement as notes bend). Gating fades in as the music nears the noise.
+        cumP[0] = 0; cumR[0] = 0;
+        for (int b = 0; b < B; ++b) { cumP[(size_t) b + 1] = cumP[(size_t) b] + Psm[(size_t) b]; cumR[(size_t) b + 1] = cumR[(size_t) b] + ref[(size_t) b]; }
+        for (int b = 0; b < B; ++b)
+        {
+            const int half = std::max (2, (int) (b * 0.12f));
+            const int lo = std::max (0, b - half), hi = std::min (B, b + half + 1);
+            const double sp = cumP[(size_t) hi] - cumP[(size_t) lo], sr = cumR[(size_t) hi] - cumR[(size_t) lo];
+            const float localDb = powToDb ((float) (sp / (sr + 1.0e-20)));
+            masked[(size_t) b] = clampf ((localDb - maskLoDb) / (maskHiDb - maskLoDb), 0.0f, 1.0f);
+        }
+
         for (int b = 0; b < B; ++b)
         {
             if (b >= bHum && b <= bHi) { hiE += Psm[(size_t) b]; hiN += noise[(size_t) b]; }
             const float snr = Psm[(size_t) b] / (ref[(size_t) b] + 1.0e-20f);
-            if (snr > openLin) open[(size_t) b] = 1;
-            else if (snr < closeLin) open[(size_t) b] = 0;
+            // decision-directed signal-to-noise estimate: blends what this band carried a moment
+            // ago with what it carries now, so bands near the threshold stop flickering
+            // (smooths the frame-to-frame scatter while music is there, but is capped at a few times
+            // what the band holds right now, so it lets go within a frame or two once it is gone)
+            const float ml = std::max (snr - 1.0f, 0.0f);
+            float& xi = xiPrev[(size_t) b];
+            xi = std::min (ddBeta * xi + (1.0f - ddBeta) * ml, 4.0f * ml + 0.5f);
+            if (snr > strongLin) xi = std::max (xi, ml);   // attacks at once
+            const float lvl = xi + 1.0f;
+            // a band opens after ~20 ms of steady evidence, or at once if it jumps in strongly;
+            // a lone noise peak can no longer blip open as a short whistle
+            unsigned char& pend = pending[(size_t) b];
+            pend = lvl > openLin ? (unsigned char) std::min (255, pend + 1) : (unsigned char) 0;
+            if (snr > strongLin || pend >= pendFrames) open[(size_t) b] = 1;
+            else if (lvl < closeLin) open[(size_t) b] = 0;
             float g = 0;
             if (open[(size_t) b])
             {
-                g = std::sqrt (std::max (0.0f, 1.0f - closeLin / snr));
+                g = std::sqrt (xi / (1.0f + xi));   // Wiener: removes only the noise's share
                 if (b >= bLo && b <= bHi) ++openCount;
                 if (b >= bHum && b <= bHi) ++openHigh;
                 // near the hum lines, only count it as music if it is louder than the amp's
@@ -660,11 +726,13 @@ private:
             }
             tmp[(size_t) b] = g;
         }
-        // protect each harmonic's main lobe (neighbouring bins follow the peak)
+        // protect each harmonic's main lobe (neighbouring bins follow the peak), then lift
+        // everything that is masked by the music around it
         for (int b = 0; b < B; ++b)
         {
             const float nb = std::max (tmp[(size_t) std::max (0, b - 1)], tmp[(size_t) std::min (B - 1, b + 1)]);
-            gainTarget[(size_t) b] = std::max (tmp[(size_t) b], 0.75f * nb);
+            const float g = std::max (tmp[(size_t) b], 0.75f * nb);
+            gainTarget[(size_t) b] = g + (1.0f - g) * masked[(size_t) b];
         }
 
         // hum estimator listens whenever nothing is sounding above the noise (every gap, even
@@ -674,6 +742,12 @@ private:
         {
             const bool hq = learned ? (openMusic == 0 && hiE < 2.0 * hiN) : quiet;
             if (humQuiet && ! hq) for (auto& hc : canceller) hc.rollback();
+            if (! humQuiet && hq && frozenSec > 0.5 && tunedHz > 0)
+                for (auto& hc : canceller)
+                {
+                    hc.beginReacquire ((int) std::lround (3.0 * fs / tunedHz));   // 3 mains cycles
+                    for (auto& d : hc.depth) d = 0;
+                }
             for (auto& hc : canceller) hc.snapshot();
             humQuiet = hq;
         }
@@ -700,20 +774,37 @@ private:
             nIn += noise[(size_t) b]; nOut += noise[(size_t) b] * gf * gf;
         }
 
-        // apply (gain is real and symmetric, so packed stereo stays separable)
-        for (int b = 0; b < B; ++b)
+        // ---- apply through the short synthesis window: each short band takes the most open of
+        // the analysis bands it covers (so a note's harmonics are never cut)
+        const int r = N / Ns, margin = r > 1 ? r / 2 + 2 : 0;
+        for (int sb = 0; sb < Bs; ++sb)
         {
-            frame[(size_t) b] *= tmp[(size_t) b];
-            if (b > 0 && b < N / 2) frame[(size_t) (N - b)] *= tmp[(size_t) b];
+            const int c0 = std::max (0, sb * r - margin), c1 = std::min (B - 1, sb * r + margin);
+            float g = 0;
+            for (int b = c0; b <= c1; ++b) g = std::max (g, tmp[(size_t) b]);
+            gainS[(size_t) sb] = g;
         }
-        fft.run (frame.data(), true);
-        const float scale = 0.5f / (float) N;   // sqrt-Hann^2 at 75% overlap sums to 2
-        for (int j = 0; j < N; ++j)
+        for (int j = 0; j < Ns; ++j)
         {
-            const size_t idx = (size_t) ((pos + j) % N);
-            const float w = win[(size_t) j] * scale;
-            outRing[0][idx] += frame[(size_t) j].real() * w;
-            if (nch == 2) outRing[1][idx] += frame[(size_t) j].imag() * w;
+            const size_t idx = (size_t) ((pos + N - Ns + j) % N);
+            const float l = inRing[0][idx] * winS[(size_t) j];
+            const float rr = nch == 2 ? inRing[1][idx] * winS[(size_t) j] : 0.0f;
+            frameS[(size_t) j] = { l, rr };
+        }
+        fftS.run (frameS.data(), false);
+        for (int sb = 0; sb < Bs; ++sb)
+        {
+            frameS[(size_t) sb] *= gainS[(size_t) sb];     // gain is real and symmetric, so packed
+            if (sb > 0 && sb < Ns / 2) frameS[(size_t) (Ns - sb)] *= gainS[(size_t) sb];   // stereo stays separable
+        }
+        fftS.run (frameS.data(), true);
+        const float scale = 0.5f / (float) Ns;   // sqrt-Hann^2 at 75% overlap sums to 2
+        for (int j = 0; j < Ns; ++j)
+        {
+            const size_t idx = (size_t) ((pos + j) % Ns);
+            const float w = winS[(size_t) j] * scale;
+            outRing[0][idx] += frameS[(size_t) j].real() * w;
+            if (nch == 2) outRing[1][idx] += frameS[(size_t) j].imag() * w;
         }
 
         // ---- telemetry
@@ -773,16 +864,22 @@ private:
     }
 
     double fs = 48000;
-    int N = 512, H = 128, B = 257;
-    FFT fft;
-    std::vector<float> win;
+    int N = 2048, Ns = 512, H = 128, B = 1025, Bs = 257;
+    FFT fft, fftS;
+    std::vector<float> win, winS, gainS;
+    std::vector<cpx> frameS;
     float winPow = 1, winSum = 1;
     std::vector<float> inRing[2], rawRing[2], outRing[2];
     std::vector<cpx> frame;
     std::vector<float> P, Psm, noise, gain, gainTarget, tmp;
     std::vector<unsigned char> open, humBin;
     std::vector<signed char> humNear;
-    std::vector<float> noiseRaw, ref;
+    std::vector<float> noiseRaw, ref, masked;
+    std::vector<unsigned char> pending;
+    std::vector<double> cumP, cumR;
+    float maskLoDb = 12.0f, maskHiDb = 25.0f, ddBeta = 0.9f;
+    int pendFrames = 2;
+    std::vector<float> xiPrev;
     std::vector<cpx> rawFrame;
     int pos = 0, hopCount = 0;
 
@@ -811,6 +908,7 @@ private:
     int hunterVersion = -1, humCount = 0, tunedSeries = -1;
     double sigmaF = 0.05, frozenSec = 0;
     float humDepth[HumCanceller::K] {};
+    int offVotes[HumCanceller::K] {};
     double tunedHz = 0;
 };
 } // namespace bkill

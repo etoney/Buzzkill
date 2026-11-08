@@ -52,12 +52,47 @@ static void pluck (std::vector<float>& y, int sr, double t0, double freq, double
     }
 }
 
+// sustained lead note: bend up a whole step, then wide vibrato, slowly decaying (written into y)
+static void leadNote (std::vector<float>& y, int sr, double t0, double f0, double dur, float amp)
+{
+    const int start = (int) (t0 * sr), len = (int) (dur * sr);
+    double ph[12] {};
+    for (int i = 0; i < len && start + i < (int) y.size(); ++i)
+    {
+        const double t = (double) i / sr;
+        double cents = t < 0.4 ? 0.0 : (t < 0.7 ? 200.0 * (t - 0.4) / 0.3 : 200.0);
+        if (t > 1.0) cents += 35.0 * std::sin (2 * kPi * 5.5 * (t - 1.0));
+        const double f = f0 * std::pow (2.0, cents / 1200.0);
+        const double env = std::exp (-t / 1.6) * std::min (1.0, t / 0.005) * std::min (1.0, (dur - t) / 0.05);
+        double v = 0;
+        for (int k = 0; k < 12; ++k) { ph[k] += 2 * kPi * f * (k + 1) / sr; v += std::sin (ph[k]) / (k + 1) * std::exp (-0.15 * k * t); }
+        y[(size_t) (start + i)] += (float) (amp * env * v);
+    }
+}
+
+// real guitars carry texture between the harmonics (pick, string and fret noise, distortion
+// intermodulation) that follows the playing; add it at a level just above the amp noise
+static void addTexture (std::vector<float>& y, const std::vector<float>& ref, int sr, std::mt19937& rng)
+{
+    std::normal_distribution<float> nd (0, 1);
+    float env = 0, lp = 0, hp = 0, prev = 0;
+    const float ea = 1.0f - std::exp (-1.0f / (0.01f * sr));
+    for (size_t i = 0; i < y.size(); ++i)
+    {
+        env += (std::abs (ref[i]) - env) * ea;
+        const float x = nd (rng);
+        lp += 0.25f * (x - lp);                 // dark-ish
+        hp = lp - prev; prev = lp;              // remove the very bottom
+        y[i] += 0.05f * env * (lp + 0.6f * hp);
+    }
+}
+
 int main (int argc, char** argv)
 {
     const std::string out = argc > 1 ? argv[1] : ".";
     const double mains = argc > 2 ? std::atof (argv[2]) : 60.02;
     const float tight = argc > 3 ? (float) std::atof (argv[3]) : 0.5f;
-    const int sr = std::getenv ("DA_SR") ? std::atoi (std::getenv ("DA_SR")) : 48000; const double secs = 32;
+    const int sr = std::getenv ("DA_SR") ? std::atoi (std::getenv ("DA_SR")) : 48000; const double secs = 34;
     const bool noHum = std::getenv ("DA_NOHUM") != nullptr, noLead = std::getenv ("DA_NOLEAD") != nullptr, stereo = std::getenv ("DA_STEREO") != nullptr;
     const size_t n = (size_t) (sr * secs);
     std::mt19937 rng (3);
@@ -73,7 +108,8 @@ int main (int argc, char** argv)
     pluck (gtr, sr, 14.0, A2, 3.0, 0.35f, 3.0, false, rng);
     for (int i = 0; i < 12; ++i) chord (18.0 + i * 0.25, { E2, 123.47 }, 0.16, 0.35f, 0.5, true); // palm-mute chugs
     pluck (gtr, sr, 22.0, D3, 6.5, 0.12f, 8.0, false, rng);                         // quiet, very long note
-    pluck (gtr, sr, 28.0, G3, 2.0, 0.3f, 2.0, false, rng);
+    leadNote (gtr, sr, 25.5, 2 * G3, 5.3, 0.45f);                                   // bend + vibrato lead (distorted below)
+    { std::vector<float> dry = gtr; addTexture (gtr, dry, sr, rng); }
     for (auto& v : gtr) v = std::tanh (v * 1.5f) / 1.5f;                              // a little amp grit
 
     // ---- amp noise: mains hum + rectifier buzz + hiss
@@ -98,7 +134,7 @@ int main (int argc, char** argv)
     for (size_t i = 0; i < n; ++i) in[i] = gtr[i] + noise[i];
     y = in;
 
-    const int quality = argc > 4 ? std::atoi (argv[4]) : 1;
+    const int quality = argc > 4 ? std::atoi (argv[4]) : 0;   // latency mode: 0 = ~11 ms (the plugin), 1 = ~21, 2 = ~43
     Engine eng; eng.prepare (sr, quality); eng.setTightness (tight);
     const int lat = eng.latencySamples();
     std::vector<float> y2 = y;
@@ -128,7 +164,7 @@ int main (int argc, char** argv)
 
     // noise in gaps: compare with the noise-only signal over regions where the guitar is silent
     std::printf ("\nGAPS (noise only)     input    output   reduction\n");
-    const double gaps[][2] = { { 1.0, 1.9 }, { 9.3, 9.9 }, { 13.6, 13.95 }, { 17.2, 17.95 }, { 31.0, 31.9 } };
+    const double gaps[][2] = { { 1.0, 1.9 }, { 9.3, 9.9 }, { 13.6, 13.95 }, { 17.2, 17.95 }, { 31.3, 33.5 } };
     for (auto& g : gaps)
     {
         const double a = rmsDb (in, g[0], g[1]), b = rmsDb (outA, g[0], g[1]);

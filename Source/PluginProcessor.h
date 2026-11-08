@@ -35,17 +35,14 @@ public:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     juce::AudioProcessorValueTreeState apvts;
 
-    // the engine currently running (for the editor's live display)
-    const bkill::Telemetry& telemetry() const { return engines[activeMode.load()].tele; }
-    bool isStudioMode() const { return activeMode.load() == 0; }
+    // live readouts for the editor
+    const bkill::Telemetry& telemetry() const { return engine.tele; }
     double getRateForDisplay() const { return currentRate; }
 
 private:
-    bkill::Engine engines[2];                 // 0 = Studio (best sustain), 1 = Live (low latency)
-    std::atomic<int> activeMode { 0 };
+    bkill::Engine engine;
     double currentRate = 48000.0;
     std::atomic<float>* releaseParam = nullptr;
-    std::atomic<float>* modeParam = nullptr;
     std::atomic<float>* listenParam = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BuzzKillProcessor)

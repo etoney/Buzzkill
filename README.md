@@ -8,17 +8,19 @@ A zero-setup noise gate for electric guitar (VST3 / AU / Standalone, built with 
 | **Noise learning** | Short-FFT analysis tracks the long-term minimum level. Moments that sit at that floor and hold steady for a second are "just the amp", and their spectrum is folded into a per-band noise profile. Decaying notes are never learned (they keep falling). Re-learns throughout the song. |
 | **Hum hunter** | During silence, a bank of phase-coherent detectors listens for 50 Hz and 60 Hz harmonic series, picks the mains frequency, and finds which harmonics stand above the hiss. |
 | **Hum canceller** | Each hum harmonic is demodulated against an oscillator locked to the measured mains frequency (tracked to about 1 mHz from phase advance in every quiet gap). A steep 4-pole estimate of its amplitude and phase is held while you play, and a synthesized copy is subtracted. Hum is removed during notes, with no notch ringing and no damage to notes sitting near a hum line. |
-| **Spectral gate** | Every FFT band opens and closes independently against the learned noise, with hysteresis, main-lobe protection and per-band release. Harmonics of a decaying note stay open while they are above the noise. When nothing is left, the residual floor fades to true silence. |
+| **Spectral gate** | A long 2048-point analysis (fine enough to hear faint note tails) drives a short 512-point output path (~11 ms latency). Each band is judged on a smoothed (decision-directed) signal-to-noise estimate with hysteresis, and must show ~20 ms of steady evidence to open unless it jumps in strongly (no lone "whistle" blips). Harmonics of a decaying note stay open while above the noise; when nothing is left, the residual floor fades to true silence. |
+| **Masking-aware** | Where the guitar is 25 dB+ above the noise in the surrounding third-octave, nothing is gated (the noise is inaudible there anyway). Gating only fades in as music nears the noise, so loud playing, bends and vibrato are never carved into a wah-like moving filter. |
 
-Controls (all optional): **Release** (Natural ↔ Tight), **Mode** (Studio ≈43 ms / Live ≈11 ms latency), **Hear Removed**.
+Controls (all optional): **Release** (Natural ↔ Tight), **Hear Removed**. Latency is ~11 ms.
 
 ## Measured (offline test, synthetic guitar + 60 Hz hum, buzz, hiss)
 - Gaps: about 125–135 dB reduction (digital silence)
 - Hum while notes ring: cancelled 25–40 dB. Mains lock within about 0.003 Hz (50 and 60 Hz).
 - Pick attacks: 0.00 dB change. Loud notes: about 35 dB fidelity (the guitar is left alone).
-- Note tails in Studio mode follow the clean guitar within about 1 dB until they reach the hiss level.
+- Note tails follow the clean guitar until they reach the hiss level.
+- Guitar texture between harmonics (bends + vibrato lead): frame-to-frame wobble identical to the untouched input (2.8 dB), level change 0.1 dB, so no wah/phasing.
 
-Run it yourself: `cmake --build build --target buzzkill_render && ./build/buzzkill_render out_dir [mains_hz] [release 0..1] [quality 0..2]`. It writes before/after/removed WAVs.
+Run it yourself: `cmake --build build --target buzzkill_render && ./build/buzzkill_render out_dir [mains_hz] [release 0..1] [latency 0..2]`. It writes before/after/removed WAVs.
 
 ## Building
 Requirements: CMake 3.22+, Git, and a C++17 compiler. JUCE 8.0.15 is downloaded automatically (same version as DREAD).

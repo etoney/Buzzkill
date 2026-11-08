@@ -50,11 +50,11 @@ private:
     BuzzKillLookAndFeel lnf;
     SpectrumView spectrum;
     juce::Slider release { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox };
-    juce::TextButton studioButton { "STUDIO" }, liveButton { "LIVE" }, listenButton { "HEAR REMOVED" };
+    juce::TextButton listenButton { "HEAR REMOVED" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> releaseAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> listenAtt;
     juce::Image background;
-    juce::Rectangle<int> statusArea, knobArea, modeArea, crestArea;
+    juce::Rectangle<int> statusArea, knobArea, monitorArea, crestArea;
     float removedSmooth = 0, pulse = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BuzzKillEditor)

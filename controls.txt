@@ -32,6 +32,14 @@ WHAT IT DOES ON ITS OWN
                  while the hiss between them is removed. When nothing is left
                  above the noise, the track goes to true silence.
 
+  YOUR TONE      While you play loud, the amp noise is hidden under your notes,
+                 so BuzzKill leaves your tone completely alone (no carving, no
+                 wah-like movement on bends and vibrato). Cleaning fades in only
+                 as notes sink toward the noise.
+
+  LATENCY        About 11 ms, so you can play through it live. Your DAW
+                 compensates it automatically on recorded tracks.
+
 
 -------------------------------------------------------------------------------
 THE DISPLAY
@@ -42,13 +50,14 @@ THE DISPLAY
   HUM LINES       Red ticks along the top: hum harmonics being cancelled.
 
   STATUS          LISTENING   learning the noise (first second or so)
-                  PLAYING     notes present; noise removed around them
+                  PLAYING     notes present; the noise is hidden under them
                   LETTING GO  following a note's tail down into the noise
                   BUZZ KILLED nothing playing; silence
 
   NOISE FLOOR     The learned noise level in dBFS.
   HUM             Detected mains frequency and how many hum lines are locked.
-  NOISE CUT       How far the noise is being turned down right now.
+  NOISE CUT       How far the noise is being turned down right now ("hidden
+                  under your notes" while you play loud).
 
 
 -------------------------------------------------------------------------------
@@ -61,13 +70,6 @@ CONTROLS (all optional)
       Tight    fast cut. Best for high-gain rhythm and palm-mute chugs where
                the gaps should be dead silent instantly.
       Default is 35% (leaning natural). Double-click the knob to reset.
-
-  MODE
-      STUDIO   ~43 ms latency, longest sustain. For recorded tracks: your DAW
-               compensates the delay automatically. (Default.)
-      LIVE     ~11 ms latency. For playing through the plugin while you
-               monitor. Sustain is slightly shorter.
-      Switching modes re-learns the noise (about a second).
 
   HEAR REMOVED
       Plays ONLY what BuzzKill is taking out. You should hear hiss, buzz and

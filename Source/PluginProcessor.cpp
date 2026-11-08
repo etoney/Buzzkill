@@ -25,8 +25,6 @@ APVTS::ParameterLayout BuzzKillProcessor::createLayout()
                 return t.retainCharacters ("0123456789.").getFloatValue() / 100.0f;
             })));
 
-    ps.push_back (std::make_unique<AudioParameterChoice> (ParameterID { "mode", 1 }, "Mode",
-                                                          StringArray { "Studio", "Live" }, 0));
     ps.push_back (std::make_unique<AudioParameterBool> (ParameterID { "listen", 1 }, "Hear Removed", false));
     return { ps.begin(), ps.end() };
 }
@@ -38,7 +36,6 @@ BuzzKillProcessor::BuzzKillProcessor()
       apvts (*this, nullptr, "BUZZKILL", createLayout())
 {
     releaseParam = apvts.getRawParameterValue ("release");
-    modeParam = apvts.getRawParameterValue ("mode");
     listenParam = apvts.getRawParameterValue ("listen");
 }
 
@@ -52,11 +49,8 @@ bool BuzzKillProcessor::isBusesLayoutSupported (const BusesLayout& layouts) cons
 void BuzzKillProcessor::prepareToPlay (double sampleRate, int)
 {
     currentRate = sampleRate;
-    engines[0].prepare (sampleRate, 2);   // Studio: ~43 ms, longest sustain
-    engines[1].prepare (sampleRate, 0);   // Live:   ~11 ms, for monitoring while you play
-    const int mode = juce::jlimit (0, 1, (int) modeParam->load());
-    activeMode = mode;
-    setLatencySamples (engines[mode].latencySamples());
+    engine.prepare (sampleRate, 0);       // ~11 ms latency: fine to play through live
+    setLatencySamples (engine.latencySamples());
 }
 
 void BuzzKillProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -67,15 +61,7 @@ void BuzzKillProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     for (int c = nIn; c < nOut; ++c) buffer.clear (c, 0, n);
     if (n == 0 || nIn == 0) return;
 
-    const int mode = juce::jlimit (0, 1, (int) modeParam->load());
-    if (mode != activeMode.load())
-    {
-        engines[mode].reset();            // relearns the noise floor in about a second
-        activeMode = mode;
-        setLatencySamples (engines[mode].latencySamples());
-    }
-
-    auto& eng = engines[mode];
+    auto& eng = engine;
     eng.setTightness (releaseParam->load());
     eng.setListenRemoved (listenParam->load() > 0.5f);
 

@@ -272,18 +272,6 @@ BuzzKillEditor::BuzzKillEditor (BuzzKillProcessor& p)
     release.setDoubleClickReturnValue (true, 0.35);
     releaseAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, "release", release);
 
-    for (auto* b : { &studioButton, &liveButton })
-    {
-        addAndMakeVisible (*b);
-        b->setClickingTogglesState (false);
-    }
-    auto setMode = [this] (int m)
-    {
-        if (auto* prm = proc.apvts.getParameter ("mode")) prm->setValueNotifyingHost (prm->convertTo0to1 ((float) m));
-    };
-    studioButton.onClick = [setMode] { setMode (0); };
-    liveButton.onClick = [setMode] { setMode (1); };
-
     addAndMakeVisible (listenButton);
     listenButton.setClickingTogglesState (true);
     listenButton.getProperties().set ("hot", true);
@@ -300,12 +288,10 @@ void BuzzKillEditor::resized()
     spectrum.setBounds (20, 100, getWidth() - 40, 220);
     statusArea = { 20, 336, 300, 124 };
     knobArea = { 336, 336, 196, 124 };
-    modeArea = { 548, 336, getWidth() - 568, 124 };
+    monitorArea = { 548, 336, getWidth() - 568, 124 };
     crestArea = { getWidth() - 270, 14, 250, 72 };
     release.setBounds (knobArea.getCentreX() - 50, knobArea.getY() + 20, 100, 92);
-    studioButton.setBounds (modeArea.getX() + 14, modeArea.getY() + 30, (modeArea.getWidth() - 34) / 2, 28);
-    liveButton.setBounds (studioButton.getRight() + 6, modeArea.getY() + 30, (modeArea.getWidth() - 34) / 2, 28);
-    listenButton.setBounds (modeArea.getX() + 14, modeArea.getY() + 84, modeArea.getWidth() - 28, 28);
+    listenButton.setBounds (monitorArea.getX() + 14, monitorArea.getY() + 84, monitorArea.getWidth() - 28, 28);
     buildBackground();
 }
 
@@ -331,7 +317,7 @@ void BuzzKillEditor::buildBackground()
     g.fillAll();
 
     // panels
-    for (auto r : { statusArea, knobArea, modeArea })
+    for (auto r : { statusArea, knobArea, monitorArea })
     {
         g.setColour (pal::panel); g.fillRoundedRectangle (r.toFloat(), 6.0f);
         g.setColour (pal::edge); g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 6.0f, 1.0f);
@@ -365,7 +351,7 @@ void BuzzKillEditor::buildBackground()
     g.setFont (font (11.0f, true).withExtraKerningFactor (0.18f));
     g.setColour (pal::ash);
     g.drawText ("RELEASE", knobArea.withHeight (24).translated (0, 4), juce::Justification::centred);
-    g.drawText ("MODE", modeArea.getX() + 14, modeArea.getY() + 8, 100, 18, juce::Justification::centredLeft);
+    g.drawText ("MONITOR", monitorArea.getX() + 14, monitorArea.getY() + 8, 100, 18, juce::Justification::centredLeft);
     g.setFont (font (10.0f, true).withExtraKerningFactor (0.12f));
     g.drawText ("NATURAL", knobArea.getX() + 10, knobArea.getBottom() - 24, 70, 14, juce::Justification::centredLeft);
     g.drawText ("TIGHT", knobArea.getRight() - 80, knobArea.getBottom() - 24, 70, 14, juce::Justification::centredRight);
@@ -379,7 +365,7 @@ void BuzzKillEditor::drawStatus (juce::Graphics& g, juce::Rectangle<int> area)
 
     const char* names[] = { "LISTENING", "PLAYING", "LETTING GO", "BUZZ KILLED" };
     const char* lines[] = { "Learning your amp's noise. Leave it a second of quiet.",
-                            "Noise removed between your notes' harmonics.",
+                            "Your notes cover the noise; it is cleaned as they fade.",
                             "Following your note down into the noise.",
                             "Nothing playing: noise fully removed." };
     const juce::Colour stateCol = st == 0 ? pal::hum : (st == 3 ? pal::ash : pal::ghost);
@@ -414,7 +400,11 @@ void BuzzKillEditor::drawStatus (juce::Graphics& g, juce::Rectangle<int> area)
     const int hl = t.humLines.load();
     row ("HUM", mains > 0 && hl > 0 ? juce::String (mains, 2) + " Hz  -  " + juce::String (hl) + " lines locked" : juce::String ("none detected"),
          mains > 0 && hl > 0 ? pal::hum : pal::bone);
-    row ("NOISE CUT", st == 0 ? juce::String ("-") : (st == 3 || removedSmooth > 60.0f ? juce::String ("all of it") : "-" + juce::String (removedSmooth, 0) + " dB"), pal::ghost);
+    juce::String cut = "-";
+    if (st == 3 || removedSmooth > 60.0f) cut = "all of it";
+    else if (st != 0 && removedSmooth < 3.0f) cut = "hidden under your notes";
+    else if (st != 0) cut = "-" + juce::String (juce::roundToInt (removedSmooth)) + " dB";
+    row ("NOISE CUT", cut, pal::ghost);
 }
 
 void BuzzKillEditor::paint (juce::Graphics& g)
@@ -424,10 +414,10 @@ void BuzzKillEditor::paint (juce::Graphics& g)
 
     g.setFont (font (11.0f));
     g.setColour (pal::ash);
-    const bool studio = proc.isStudioMode();
     const double ms = 1000.0 * proc.getLatencySamples() / std::max (1.0, proc.getRateForDisplay());
-    g.drawText (juce::String (juce::roundToInt (ms)) + " ms latency  -  " + (studio ? "longest sustain" : "for playing live"),
-                modeArea.getX() + 14, modeArea.getY() + 60, modeArea.getWidth() - 28, 16, juce::Justification::centredLeft);
+    auto info = monitorArea.reduced (14, 0).withTrimmedTop (32).withHeight (40);
+    g.drawText (juce::String (juce::roundToInt (ms)) + " ms latency: fine to play through live", info.removeFromTop (18), juce::Justification::centredLeft);
+    g.drawText ("Put BuzzKill first in your chain", info.removeFromTop (18), juce::Justification::centredLeft);
     g.setFont (font (11.5f, true));
     g.setColour (pal::bone);
     g.drawText (release.getTextFromValue (release.getValue()), knobArea.getX(), knobArea.getBottom() - 25, knobArea.getWidth(), 16, juce::Justification::centred);
@@ -439,10 +429,7 @@ void BuzzKillEditor::timerCallback()
     const auto& t = proc.telemetry();
     removedSmooth += (t.removedDb.load() - removedSmooth) * 0.15f;
     pulse += 0.18f;
-    const bool studio = proc.isStudioMode();
-    studioButton.setToggleState (studio, juce::dontSendNotification);
-    liveButton.setToggleState (! studio, juce::dontSendNotification);
     repaint (statusArea);
-    repaint (modeArea);
+    repaint (monitorArea);
     repaint (knobArea);
 }

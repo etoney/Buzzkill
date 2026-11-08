@@ -1,7 +1,7 @@
 // Headless checks run in CI:
 //  1) runs synthetic guitar + amp hum through the plugin, checks it learns and silences the gaps
 //  2) renders the editor to gui.png (playing) and gui_silent.png (gap)
-//  3) state save/restore round trip, latency reporting for both modes
+//  3) state save/restore round trip, latency reporting
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "../Source/PluginProcessor.h"
 #include "../Source/PluginEditor.h"
@@ -24,7 +24,7 @@ int main (int argc, char** argv)
         BuzzKillProcessor proc;
         proc.setPlayConfigDetails (2, 2, sr, bs);
         proc.prepareToPlay (sr, bs);
-        check (proc.getLatencySamples() == 2048, "studio mode reports 2048 samples latency at 48 kHz");
+        check (proc.getLatencySamples() == 512, "reports 512 samples (~11 ms) latency at 48 kHz");
 
         std::unique_ptr<BuzzKillEditor> ed (dynamic_cast<BuzzKillEditor*> (proc.createEditor()));
         juce::AudioBuffer<float> buf (2, bs);
@@ -64,17 +64,13 @@ int main (int argc, char** argv)
         check (red > 40.0f, "gap noise reduced by more than 40 dB");
         check (std::abs (proc.telemetry().mainsHz.load() - 60.01f) < 0.02f, "mains hum locked to 60.01 Hz");
 
-        // state round trip + mode switch
+        // state round trip
         auto* rel = proc.apvts.getParameter ("release");
         rel->setValueNotifyingHost (0.8f);
         juce::MemoryBlock state; proc.getStateInformation (state);
         rel->setValueNotifyingHost (0.1f);
         proc.setStateInformation (state.getData(), (int) state.getSize());
         check (std::abs (proc.apvts.getRawParameterValue ("release")->load() - 0.8f) < 0.01f, "state restores release");
-        auto* mode = proc.apvts.getParameter ("mode");
-        mode->setValueNotifyingHost (1.0f);
-        run (0.05, false, false);
-        check (proc.getLatencySamples() == 512, "live mode reports 512 samples latency at 48 kHz");
         ed.reset();
     }
     std::printf ("%d failure(s)\n", failures);
