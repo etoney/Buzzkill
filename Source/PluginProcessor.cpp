@@ -1,6 +1,10 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+#ifndef JucePlugin_VersionString
+ #define JucePlugin_VersionString "dev"
+#endif
+
 using APVTS = juce::AudioProcessorValueTreeState;
 
 APVTS::ParameterLayout BuzzKillProcessor::createLayout()
@@ -37,6 +41,25 @@ BuzzKillProcessor::BuzzKillProcessor()
 {
     releaseParam = apvts.getRawParameterValue ("release");
     listenParam = apvts.getRawParameterValue ("listen");
+
+    link = std::make_unique<Link> ("buzzkill", "BuzzKill", JucePlugin_VersionString, apvts, juce::StringArray { "release", "listen" });
+    link->onOtherMessage = [this] (const juce::var& m)
+    {
+        if (m.getProperty ("type", "").toString() == "measure-reset") statsReset = true;   // The Master's RESET: start counting again
+    };
+    link->extraStatus = [this]
+    {
+        auto* o = new juce::DynamicObject();
+        const auto& t = engine.tele;
+        const auto n = playSamples.load();
+        o->setProperty ("track", getTrackName());
+        o->setProperty ("learned", t.state.load() != 0 && t.floorDb.load() > -119.0f);
+        o->setProperty ("floorDb", (double) t.floorDb.load());
+        o->setProperty ("playDb", n > 0 ? 10.0 * std::log10 (std::max (1e-20, playPow.load() / (double) n)) : -120.0);
+        o->setProperty ("seconds", (double) n / std::max (1.0, currentRate));
+        o->setProperty ("state", t.state.load());
+        return juce::var (o);
+    };
 }
 
 bool BuzzKillProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -67,8 +90,18 @@ void BuzzKillProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
 
     float* L = buffer.getWritePointer (0);
     float* R = nIn > 1 && nOut > 1 ? buffer.getWritePointer (1) : nullptr;
+    auto power = [&]
+    {
+        double s = 0;
+        for (int i = 0; i < n; ++i) s += R != nullptr ? 0.5 * ((double) L[i] * L[i] + (double) R[i] * R[i]) : (double) L[i] * L[i];
+        return s / n;
+    };
+    const double inPow = power();
     eng.process (L, R, n);
     if (nIn == 1 && nOut > 1) buffer.copyFrom (1, 0, buffer, 0, 0, n);
+    link->env.addPowers (inPow, power(), n);
+    if (statsReset.exchange (false)) { playPow = 0; playSamples = 0; }
+    if (eng.tele.state.load() == 1) { playPow = playPow.load() + inPow * n; playSamples += n; }
 }
 
 void BuzzKillProcessor::getStateInformation (juce::MemoryBlock& destData)

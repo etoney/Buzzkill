@@ -282,6 +282,7 @@ void BuzzKillEditor::resized()
     knobArea = { 336, 336, 196, 124 };
     monitorArea = { 548, 336, getWidth() - 568, 124 };
     crestArea = { getWidth() - 270, 14, 250, 72 };
+    linkArea = { 28, 84, 470, 14 };
     release.setBounds (knobArea.getCentreX() - 50, knobArea.getY() + 20, 100, 92);
     relearnButton.setBounds (monitorArea.getX() + 14, monitorArea.getY() + 50, monitorArea.getWidth() - 28, 28);
     listenButton.setBounds (monitorArea.getX() + 14, monitorArea.getY() + 86, monitorArea.getWidth() - 28, 28);
@@ -419,6 +420,21 @@ void BuzzKillEditor::paint (juce::Graphics& g)
     g.setFont (font (11.5f, true));
     g.setColour (pal::bone);
     g.drawText (release.getTextFromValue (release.getValue()), knobArea.getX(), knobArea.getBottom() - 25, knobArea.getWidth(), 16, juce::Justification::centred);
+
+    // Castle Danger Link: is The Master here?
+    auto& lk = proc.getLink();
+    const bool linked = lk.masterNearby();
+    const bool recent = lk.getLastNoteTime() > 0 && juce::Time::getMillisecondCounter() - lk.getLastNoteTime() < 60000;
+    auto la = linkArea.toFloat();
+    g.setColour ((linked ? pal::ghost : pal::ash).withAlpha (linked ? 1.0f : 0.35f));
+    g.fillEllipse (la.getX(), la.getCentreY() - 3.5f, 7.0f, 7.0f);
+    g.setFont (font (10.0f, true).withExtraKerningFactor (0.14f));
+    g.setColour (linked ? pal::bone : pal::ghostDim);
+    const auto track = proc.getTrackName();
+    g.drawText (! linked ? juce::String ("NOT LINKED TO THE MASTER")
+                         : (recent ? juce::String ("RELEASE JUST SET BY THE MASTER  //  TURN IT ANY TIME")
+                                   : "LINKED TO THE MASTER" + (track.isNotEmpty() ? "  //  " + track.toUpperCase() : juce::String())),
+                linkArea.withTrimmedLeft (12), juce::Justification::centredLeft, true);
 }
 
 void BuzzKillEditor::timerCallback()
@@ -430,4 +446,5 @@ void BuzzKillEditor::timerCallback()
     repaint (statusArea);
     repaint (monitorArea);
     repaint (knobArea);
+    repaint (linkArea);
 }

@@ -51,7 +51,7 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> releaseAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> listenAtt;
     juce::Image background;
-    juce::Rectangle<int> statusArea, knobArea, monitorArea, crestArea;
+    juce::Rectangle<int> statusArea, knobArea, monitorArea, crestArea, linkArea;
     float removedSmooth = 0, pulse = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BuzzKillEditor)

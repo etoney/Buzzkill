@@ -1,10 +1,11 @@
 cmake_minimum_required(VERSION 3.22)
-project(BUZZKILL VERSION 2.0.0)
+# Must come BEFORE project(), or CMake ignores them: universal (Apple Silicon + Intel), macOS 11+
+set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "")
+set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "")
+project(BUZZKILL VERSION 2.1.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "")
-set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "")
 
 # Same JUCE version as DREAD (keep every Castle Danger plugin on one version).
 # To build against a local JUCE checkout instead: -DFETCHCONTENT_SOURCE_DIR_JUCE=/path/to/JUCE
@@ -58,6 +59,6 @@ target_include_directories(buzzkill_render PRIVATE Source)
 juce_add_console_app(BuzzKillSnapshot PRODUCT_NAME "BuzzKillSnapshot")
 target_sources(BuzzKillSnapshot PRIVATE test/snapshot.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp)
 target_compile_definitions(BuzzKillSnapshot PRIVATE
-    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_ALSA=0 JUCE_JACK=0
     "JucePlugin_VersionString=\"${PROJECT_VERSION}\"")
 target_link_libraries(BuzzKillSnapshot PRIVATE juce::juce_audio_utils juce::juce_dsp PUBLIC juce::juce_recommended_config_flags)

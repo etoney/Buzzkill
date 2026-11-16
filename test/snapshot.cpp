@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "../Source/PluginProcessor.h"
 #include "../Source/PluginEditor.h"
+#include <map>
 
 static bool writePng (const juce::Image& img, const juce::File& f)
 {
@@ -69,6 +70,43 @@ int main (int argc, char** argv)
         check (proc.telemetry().state.load() == 0, "relearn starts listening again");
         run (1.2, false, false);
         check (proc.telemetry().state.load() == 3, "relearned and silent within ~1 s");
+
+        // Castle Danger Link: The Master (in "another plugin binary") reads the noise floor and sets RELEASE
+        {
+            auto otherBinary = cdlink::Node::createIsolatedForTesting();
+            juce::var lastStatus, lastApplied;
+            cdlink::Endpoint master ("master", [&] (const juce::var& m)
+            {
+                const auto ty = m.getProperty ("type", "").toString();
+                if (ty == "status" && m.getProperty ("from", "").toString() == proc.getLink().getId()) lastStatus = m;
+                if (ty == "applied") lastApplied = m;
+            }, otherBinary);
+            auto pump = [] (int ms) { juce::MessageManager::getInstance()->runDispatchLoopUntil (ms); };
+            for (int i = 0; i < 30 && ! master.isOnline(); ++i) pump (50);
+            run (0.5, true, false);                 // play a note: the gate is open, BuzzKill counts how loud you play
+            pump (1600);
+            const auto ex = lastStatus.getProperty ("extra", {});
+            std::printf ("link: floor %.1f dB, play %.1f dB, %.2f s, learned %d\n", (double) ex.getProperty ("floorDb", 0.0), (double) ex.getProperty ("playDb", 0.0),
+                         (double) ex.getProperty ("seconds", 0.0), (int) (bool) ex.getProperty ("learned", false));
+            check (lastStatus.isObject() && (bool) ex.getProperty ("learned", false) && (double) ex.getProperty ("floorDb", 0.0) < -50.0
+                   && (double) ex.getProperty ("playDb", -120.0) > -25.0 && (double) ex.getProperty ("seconds", 0.0) > 0.3,
+                   "BuzzKill reports its learned noise floor and how loud the guitar plays");
+            auto set = cdlink::Endpoint::makeMessage ("set");
+            auto* prm = new juce::DynamicObject();
+            prm->setProperty ("release", 0.75); prm->setProperty ("listen", 0.0);
+            set->setProperty ("params", juce::var (prm));
+            master.send (set, lastStatus.getProperty ("from", "").toString());
+            for (int i = 0; i < 40 && ! lastApplied.isObject(); ++i) pump (50);
+            check (std::abs (proc.apvts.getRawParameterValue ("release")->load() - 0.75f) < 0.01f && lastApplied.isObject() && proc.getLink().masterNearby(),
+                   "The Master can set RELEASE (and gets a confirmation)");
+            master.send (cdlink::Endpoint::makeMessage ("measure-reset"));
+            pump (300);
+            run (0.3, false, false);
+            pump (600);
+            check ((double) lastStatus.getProperty ("extra", {}).getProperty ("seconds", 1.0) < 0.01, "The Master's RESET restarts the count");
+            ed->refreshNow();
+            check (writePng (ed->createComponentSnapshot (ed->getLocalBounds(), true, 2.0f), dir.getChildFile ("gui_linked.png")), "linked snapshot");
+        }
 
         // state round trip
         auto* rel = proc.apvts.getParameter ("release");

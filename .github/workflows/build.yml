@@ -13,13 +13,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [macos-15-intel, windows-latest]   # the Intel runner still builds universal arm64 + x86_64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          else
+            cmake -B build -DCMAKE_BUILD_TYPE=Release
+          fi
       - name: Build
         run: cmake --build build --config Release --target BuzzKill_VST3 BuzzKill_Standalone
       - name: Build AU (macOS)
@@ -36,6 +42,43 @@ jobs:
           cd /tmp/shot && git init -q -b screenshots && git add -A
           git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "GUI snapshot for ${GITHUB_SHA}"
           git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" screenshots
+      - name: Check universal + ad-hoc sign (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -e
+          for b in build/*_artefacts/Release/VST3/*.vst3 build/*_artefacts/Release/AU/*.component build/*_artefacts/Release/Standalone/*.app; do
+            [ -e "$b" ] || continue
+            n=$(basename "$b"); n="${n%.*}"
+            bin="$b/Contents/MacOS/$n"
+            archs=$(lipo -archs "$bin"); minos=$(vtool -show-build "$bin" 2>/dev/null | awk '/minos/{print $2; exit}')
+            echo "$n: $archs (min macOS $minos)"
+            if [[ "$archs" != *arm64* || "$archs" != *x86_64* ]]; then echo "::error::$n is not universal ($archs)"; exit 1; fi
+            codesign --force --deep -s - "$b"
+          done
+      - name: Package release zip (same layout as the site downloads)
+        shell: bash
+        run: |
+          VER=$(sed -n 's/^project(BUZZKILL VERSION \([0-9.]*\)).*/\1/p' CMakeLists.txt)
+          OS=$([ "$RUNNER_OS" = "macOS" ] && echo macOS || echo Windows)
+          ZIP="BuzzKill-v${VER}-${OS}.zip"
+          R=build/BuzzKill_artefacts/Release
+          mkdir -p pkg/BuzzKill/VST3 pkg/BuzzKill/Standalone
+          cp readme.txt controls.txt LICENSE.txt THIRD-PARTY-NOTICES.txt pkg/BuzzKill/
+          cp -R "$R/VST3/BuzzKill.vst3" pkg/BuzzKill/VST3/
+          if [ "$OS" = "macOS" ]; then
+            mkdir -p pkg/BuzzKill/AU && cp -R "$R/AU/BuzzKill.component" pkg/BuzzKill/AU/
+            cp -R "$R/Standalone/BuzzKill.app" pkg/BuzzKill/Standalone/
+            (cd pkg && ditto -c -k --sequesterRsrc --keepParent BuzzKill "../$ZIP")
+          else
+            cp "$R/Standalone/BuzzKill.exe" pkg/BuzzKill/Standalone/
+            (cd pkg && 7z a -tzip -mx=9 "../$ZIP" BuzzKill > /dev/null)   # 7z writes forward-slash paths
+          fi
+          ls -la "$ZIP"
+          BR="downloads-$(echo $OS | tr 'A-Z' 'a-z')"
+          mkdir -p /tmp/dl && cp "$ZIP" /tmp/dl/ && cd /tmp/dl && git init -q -b "$BR" && git add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "$ZIP for ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" "$BR"
       - uses: actions/upload-artifact@v4
         with:
           name: BuzzKill-${{ runner.os }}

@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "BuzzKillEngine.h"
+#include "CDLink.h"
 
 class BuzzKillProcessor : public juce::AudioProcessor
 {
@@ -40,11 +41,25 @@ public:
     void relearn() { engine.requestRelearn(); }   // safe to call from the UI thread
     double getRateForDisplay() const { return currentRate; }
 
+    // ---- Castle Danger Link: The Master (on the master bus) hears the whole mix and sets RELEASE
+    //      for the genre and this track's part; it reads the learned noise floor from here
+    using Link = cdlink::PluginLink<juce::AudioProcessorValueTreeState>;
+    Link& getLink() { return *link; }
+    juce::String getTrackName() const { const juce::ScopedLock sl (nameLock); return trackName; }
+    void updateTrackProperties (const TrackProperties& props) override { const juce::ScopedLock sl (nameLock); trackName = props.name.value_or (juce::String()); }
+
 private:
     bkill::Engine engine;
     double currentRate = 48000.0;
     std::atomic<float>* releaseParam = nullptr;
     std::atomic<float>* listenParam = nullptr;
+    std::unique_ptr<Link> link;
+    juce::String trackName;
+    juce::CriticalSection nameLock;
+    // how loud you play, while the gate is open (since The Master's last RESET)
+    std::atomic<double> playPow { 0 };
+    std::atomic<juce::int64> playSamples { 0 };
+    std::atomic<bool> statsReset { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BuzzKillProcessor)
 };

@@ -72,3 +72,21 @@ CONTROLS (all optional)
   HEAR REMOVED
       Plays ONLY what BuzzKill is taking out. You should hear hiss, buzz and
       hum, and none of your guitar. Turn it off when you're done checking.
+
+
+-------------------------------------------------------------------------------
+LINKED TO THE MASTER
+-------------------------------------------------------------------------------
+  If The Master is on your master bus, BuzzKill links to it by itself (the
+  line under the title says LINKED TO THE MASTER). Nothing to set up.
+
+  In MY PLUGINS mode, The Master:
+    - reads BuzzKill's learned noise floor and how loud you play,
+    - finds which track it's on (by track name, or by matching it to The
+      Servant on the same track), and
+    - on APPLY sets RELEASE for the genre and the part: tight for metal and
+      punk rhythm parts, natural for pop, a little gentler on leads and bass,
+      a little tighter on a noisy track. It also turns HEAR REMOVED off.
+
+  Every change shows in The Master's WHAT I CHANGED & WHY log. Turn RELEASE
+  any time afterwards; The Master only sets it again when you press APPLY.
