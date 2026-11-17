@@ -33,18 +33,25 @@ HOW IT BEHAVES
                    new amp-sim preset), BuzzKill adopts the new noise by itself.
                    RELEARN does it instantly.
 
+  NON-STOP RIFFS   Noise is only ever learned from something well under (20 dB+)
+                   what you've just been playing, and anything louder than
+                   -24 dBFS always opens the gate. So a wall of rhythm guitar
+                   with no gaps, or a held chord, can never be mistaken for noise.
+
 
 -------------------------------------------------------------------------------
 THE DISPLAY
 -------------------------------------------------------------------------------
-  IN              What comes in (grey).
-  OUT             What gets through (teal).
-  LEARNED NOISE   BuzzKill's picture of your amp's noise (red shading).
+  THE AIR BETWEEN NOTES   the live spectrum:
+  IN              What comes in (dim).
+  OUT             What gets through (cream).
+  LEARNED NOISE   BuzzKill's picture of your amp's noise (rust-red shading).
+                  The faint red lines mark 50/60 Hz mains hum and its harmonics.
 
+  THE GATE plate:
   STATUS          LISTENING   learning the noise (first second or so)
                   PLAYING     gate open: your signal passes untouched
                   LETTING GO  a note has faded into the noise; closing gently
-                  LETTING GO  following a note's tail down into the noise
                   BUZZ KILLED nothing playing; silence
 
   NOISE FLOOR     The learned noise level in dBFS.
@@ -78,7 +85,7 @@ CONTROLS (all optional)
 LINKED TO THE MASTER
 -------------------------------------------------------------------------------
   If The Master is on your master bus, BuzzKill links to it by itself (the
-  line under the title says LINKED TO THE MASTER). Nothing to set up.
+  lamp under the logo says LINKED TO THE MASTER). Nothing to set up.
 
   In MY PLUGINS mode, The Master:
     - reads BuzzKill's learned noise floor and how loud you play,

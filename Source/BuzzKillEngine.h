@@ -210,7 +210,7 @@ public:
             {
                 if (veto > 0) --veto;
                 ++sinceClamp;
-                if (lvl > openLin)
+                if (lvl > openLin || env > kLoudLin)
                 {
                     // playing: open (look-ahead means this happens before the attack is heard)
                     gate += (1.0f - gate) * gateAtt;
@@ -268,7 +268,7 @@ private:
         subIdx = 0; subCount = 0; histIdx = 0; histFill = 0; quiet = false; noiseTd = 0; noisePk = 0; hopMax = 0;
         for (auto& v : hopMaxes) v = 0;
         std::fill (hist.begin(), hist.end(), -150.0f);
-        musicPresent = false;
+        musicPresent = false; playDb = -150.0f; heardPlaying = false;
         snapIdx = 0; snapsFilled = 0; snapCounter = 0;
         for (auto& v : bandSlow) v = -150.0f;
     }
@@ -305,10 +305,17 @@ private:
         totalSlow += (total - totalSlow) * slowCoef;
         const float Es = powToDb ((float) totalSlow);
         ++frames;
+        // how loud the playing has been lately: jumps up at once, sinks 1.5 dB/s
+        playDb = std::max (Es, playDb - 1.5f / framesPerSec);
+        // Noise can only ever be something well under the playing (or quiet in absolute terms).
+        // Without this, a riff with no gaps slowly became "the noise floor" and got gated.
+        // (Before anything has been played, the steady sound at the start is the noise as usual.)
+        if (floorInit && (Es > floorDb + kPlayGapDb || sinceOnset < (long long) H)) heardPlaying = true;
+        const bool couldBeNoise = ! heardPlaying || Es < playDb - kPlayGapDb || Es < kQuietAbsDb;
 
         const bool digitalSilence = Edb < -125.0f || frames <= N / H + 3 + (int) (0.1f * framesPerSec);
         if (digitalSilence) totalSlow = total;
-        if (! digitalSilence) trackFloor (Es);
+        if (! digitalSilence) trackFloor (Es, couldBeNoise);
 
         const int hn = (int) hist.size();
         const float E1 = hist[(size_t) ((histIdx + hn / 2) % hn)];
@@ -319,7 +326,7 @@ private:
         // knob turned back up, or a different amp-sim preset): adopt it as the new noise
         const bool stationary = updateStationarity();
         // (a held note always began with a pick attack; turning a knob up doesn't make one)
-        if (floorInit && learned && ! digitalSilence && stationary && Es > floorDb + 2.0f && Es < floorDb + 30.0f
+        if (floorInit && learned && ! digitalSilence && stationary && couldBeNoise && Es > floorDb + 2.0f && Es < floorDb + 30.0f
             && sinceOnset > (long long) (3.0 * fs))
         {
             floorDb = Es;
@@ -331,7 +338,7 @@ private:
 
         // quiet = at the long-term floor and holding steady for a second
         const bool steady = std::abs (Es - E1) < 1.5f;
-        quiet = ! digitalSilence && floorInit && Es < floorDb + 2.5f && steady && histFill >= hn / 2;
+        quiet = ! digitalSilence && floorInit && couldBeNoise && Es < floorDb + 2.5f && steady && histFill >= hn / 2;
         if (forcedLearn > 0)   // just after Relearn: you've told us it's quiet, so learn right away
         {
             --forcedLearn;
@@ -452,7 +459,7 @@ private:
     }
 
     // long-term broadband floor: falls immediately, rises slowly toward the 6 s minimum
-    void trackFloor (float E)
+    void trackFloor (float E, bool couldBeNoise)
     {
         if (! floorInit) { floorDb = E; floorInit = true; }
         subMin = std::min (subMin, E);
@@ -460,7 +467,7 @@ private:
         float winMin = subMin;
         for (float v : subMins) winMin = std::min (winMin, v);
         if (E < floorDb) floorDb += 0.3f * (E - floorDb);
-        else if (winMin < 999.0f && winMin > floorDb)
+        else if (couldBeNoise && winMin < 999.0f && winMin > floorDb)
         {
             const float tau = learned ? 3.0f : 0.25f;
             floorDb += (winMin - floorDb) * (1.0f - std::exp (-1.0f / (tau * framesPerSec)));
@@ -505,6 +512,9 @@ private:
     float gate = 1, gateAtt = 0.05f, gateRel = 0.9999f, clampRel = 0.98f;
     int holdSamples = 0, holdLeft = 0, attackHoldSamples = 480, veto = 0, vetoSamples = 2880;
     long long sinceClamp = 0, sinceOnset = 0;
+    float playDb = -150.0f; bool heardPlaying = false;
+    static constexpr float kPlayGapDb = 20.0f, kQuietAbsDb = -50.0f;
+    const float kLoudLin = std::pow (10.0f, -24.0f / 10.0f);   // 10 ms peak above -24 dBFS: always playing
     bool musicPresent = false, listenRemoved = false, useSpectral = true, isOpen = true, forgetSpectral = false;
 };
 } // namespace bkill

@@ -89,6 +89,23 @@ int main (int argc, char** argv)
     std::vector<Ev> chugs, rings, chokes;
     auto chord = [&] (double t, std::initializer_list<double> fs, double dur, float amp, double sus, float bright, double stopMs)
     { double d = 0; for (double f : fs) { pluck (di, sr, t + d, f, dur, amp, sus, bright, stopMs, rng); d += 0.004; } };
+    const bool dense = std::getenv ("DA_DENSE") != nullptr;
+    if (dense)
+    {
+        // A wall of metal rhythm guitar with no gaps at all (2-29 s): held power chords that ring
+        // into each other, 16th chugs under a ringing chord, and a quieter verse (clean-ish picking
+        // 25 dB down). The gate must never touch any of it.
+        double t = std::getenv ("DA_NOLEAD") ? 0.0 : 2.0; int k = 0;
+        const double roots[] = { E2, 98.0, 110.0, 87.31 };
+        while (t < 14.0) { const double r = roots[k++ % 4]; chord (t, { r, r * 1.498, r * 2 }, 3.6, 0.25f, 8.0, 0.5f, 30); t += 3.0; }
+        for (int i = 0; i < 64; ++i) { const double tt = 14.0 + i * 0.09375; chord (tt, { E2, B2 }, 0.2, 0.3f, 2.0, 0.3f, 20); }
+        chord (14.0, { E2 * 2, B2 * 2 }, 6.5, 0.08f, 10.0, 0.5f, 30);
+        for (int i = 0; i < 24; ++i) pluck (di, sr, 20.0 + i * 0.375, (i % 2 ? G3 : A3) * 2, 0.6, 0.012f, 3.0, 0.7f, 30, rng);
+        chord (29.0 - 0.05, { E2, B2, E3 }, 0.1, 0.0f, 1.0, 0.5f, 10);
+        rings.push_back ({ 2.0, 28.9, "dense riff" });
+    }
+    else
+    {
     chord (2.0, { E2, B2, E3 }, 5.5, 0.25f, 6.0, 0.5f, 30);                        // power chord, let it ring
     rings.push_back ({ 2.0, 7.4, "power chord ring" });   // next event at 8.5 s
     for (int i = 0; i < 16; ++i)                                                    // palm-mute 8ths @160
@@ -113,6 +130,7 @@ int main (int argc, char** argv)
     }
     pluck (di, sr, 25.0, 2 * G3, 4.0, 0.25f, 3.0, 0.55f, 40, rng);                 // lead note fading out
     rings.push_back ({ 25.0, 29.0, "lead note fade" });
+    }
 
     // ---- DI noise: pickup hum/buzz + hiss (the volume test turns the guitar off and on again)
     std::normal_distribution<float> nd (0, 1);
