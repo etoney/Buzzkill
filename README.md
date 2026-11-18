@@ -1,6 +1,6 @@
 # BuzzKill: dynamic guitar noise gate
 
-A zero-setup dynamic noise gate for electric guitar, made to sit right after an amp sim in a DAW (VST3 / AU / Standalone, built with JUCE 8.0.15) by Castle Danger Music Company. While you play it does nothing. When you stop, it closes as soon as the level reaches the noise floor: within milliseconds for palm mutes and chokes, and only after the last harmonic is gone for notes you let ring.
+A zero-setup dynamic noise gate for electric guitar, made to sit right after an amp sim in a DAW (VST3 / AU, built with JUCE 8.0.15) by Castle Danger Music Company. While you play it does nothing. When you stop, it closes as soon as the level reaches the noise floor: within milliseconds for palm mutes and chokes, and only after the last harmonic is gone for notes you let ring.
 
 ## How it works
 | Part | What it does |
@@ -30,7 +30,7 @@ Requirements: CMake 3.22+, Git, and a C++17 compiler. JUCE 8.0.15 is downloaded 
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release --target BuzzKill_VST3 BuzzKill_Standalone   # add BuzzKill_AU on macOS
+cmake --build build --config Release --target BuzzKill_VST3   # add BuzzKill_AU on macOS
 ```
 
 **No compiler?** Push to GitHub. `.github/workflows/build.yml` builds macOS and Windows and attaches them as artifacts on the Actions tab. It also renders the GUI to the `screenshots` branch.

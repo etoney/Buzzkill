@@ -27,7 +27,7 @@ jobs:
             cmake -B build -DCMAKE_BUILD_TYPE=Release
           fi
       - name: Build
-        run: cmake --build build --config Release --target BuzzKill_VST3 BuzzKill_Standalone
+        run: cmake --build build --config Release --target BuzzKill_VST3
       - name: Build AU (macOS)
         if: runner.os == 'macOS'
         run: cmake --build build --config Release --target BuzzKill_AU
@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          for b in build/*_artefacts/Release/VST3/*.vst3 build/*_artefacts/Release/AU/*.component build/*_artefacts/Release/Standalone/*.app; do
+          for b in build/*_artefacts/Release/VST3/*.vst3 build/*_artefacts/Release/AU/*.component; do
             [ -e "$b" ] || continue
             n=$(basename "$b"); n="${n%.*}"
             bin="$b/Contents/MacOS/$n"
@@ -63,15 +63,13 @@ jobs:
           OS=$([ "$RUNNER_OS" = "macOS" ] && echo macOS || echo Windows)
           ZIP="BuzzKill-v${VER}-${OS}.zip"
           R=build/BuzzKill_artefacts/Release
-          mkdir -p pkg/BuzzKill/VST3 pkg/BuzzKill/Standalone
+          mkdir -p pkg/BuzzKill/VST3
           cp readme.txt controls.txt LICENSE.txt THIRD-PARTY-NOTICES.txt pkg/BuzzKill/
           cp -R "$R/VST3/BuzzKill.vst3" pkg/BuzzKill/VST3/
           if [ "$OS" = "macOS" ]; then
             mkdir -p pkg/BuzzKill/AU && cp -R "$R/AU/BuzzKill.component" pkg/BuzzKill/AU/
-            cp -R "$R/Standalone/BuzzKill.app" pkg/BuzzKill/Standalone/
             (cd pkg && ditto -c -k --sequesterRsrc --keepParent BuzzKill "../$ZIP")
           else
-            cp "$R/Standalone/BuzzKill.exe" pkg/BuzzKill/Standalone/
             (cd pkg && 7z a -tzip -mx=9 "../$ZIP" BuzzKill > /dev/null)   # 7z writes forward-slash paths
           fi
           ls -la "$ZIP"
@@ -89,4 +87,3 @@ jobs:
             THIRD-PARTY-NOTICES.txt
             build/BuzzKill_artefacts/Release/VST3
             build/BuzzKill_artefacts/Release/AU
-            build/BuzzKill_artefacts/Release/Standalone
