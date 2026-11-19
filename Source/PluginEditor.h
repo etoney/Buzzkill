@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "PluginProcessor.h"
+#include "Rebel.h"
 
 class BuzzKillLookAndFeel : public juce::LookAndFeel_V4
 {
@@ -75,4 +76,5 @@ private:
     int linkTick = 0, lastState = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BuzzKillEditor)
+    cdrebel::Button rebel { proc.apvts };   // REBEL: The Master hands off
 };

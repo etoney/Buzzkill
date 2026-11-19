@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "Rebel.h"
 #include "PluginEditor.h"
 
 #ifndef JucePlugin_VersionString
@@ -30,6 +31,7 @@ APVTS::ParameterLayout BuzzKillProcessor::createLayout()
             })));
 
     ps.push_back (std::make_unique<AudioParameterBool> (ParameterID { "listen", 1 }, "Hear Removed", false));
+    ps.push_back (cdrebel::makeParam());
     return { ps.begin(), ps.end() };
 }
 

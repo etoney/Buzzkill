@@ -97,3 +97,8 @@ LINKED TO THE MASTER
 
   Every change shows in The Master's WHAT I CHANGED & WHY log. Turn RELEASE
   any time afterwards; The Master only sets it again when you press APPLY.
+
+REBEL  (next to the link lamp)
+  On: The Master keeps its hands off this plugin. Nothing it sends changes a setting here; it still
+  hears what the plugin does and plans the rest of the mix around it. Saved with the project; presets
+  never change it. Turn it off to let The Master run the plugin again.

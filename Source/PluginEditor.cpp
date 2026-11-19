@@ -497,6 +497,7 @@ BuzzKillEditor::BuzzKillEditor (BuzzKillProcessor& p)
     listenButton.setTooltip ("Hear only what BuzzKill takes out. Turn it off before you bounce!");
     listenAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, "listen", listenButton);
 
+    addAndMakeVisible (rebel);
     setSize (900, 560);
     startTimerHz (30);
 }
@@ -515,6 +516,7 @@ void BuzzKillEditor::resized()
     crestArea  = { 640, 19, 76, 76 };
     stripeArea = { 0, 110, getWidth(), 10 };
     linkArea   = { 120, 86, 500, 14 };
+    rebel.setBounds (linkArea.getX(), linkArea.getCentreY() - 8, 54, 16);
 
     plates.push_back ({ "THE AIR BETWEEN NOTES", { 16, 130, 868, 234 } });
     spectrum.setBounds (28, 154, 844, 198);
@@ -815,13 +817,15 @@ void BuzzKillEditor::paint (juce::Graphics& g)
         auto& lk = proc.getLink();
         const bool linked = lk.masterNearby();
         const bool justSet = lk.getLastNoteTime() > 0 && juce::Time::getMillisecondCounter() - lk.getLastNoteTime() < 60000;
-        auto r = linkArea.toFloat();
-        const auto col = justSet ? pal::signalHot : (linked ? pal::hazard : pal::paintDim.withAlpha (0.35f));
+        const bool rebelOn = lk.isRebel();
+        auto r = linkArea.toFloat().withTrimmedLeft (60);   // REBEL sits first on the line
+        const auto col = rebelOn ? pal::signal : (justSet ? pal::signalHot : (linked ? pal::hazard : pal::paintDim.withAlpha (0.35f)));
         if (linked) { juce::Path lp; lp.addEllipse (r.getX(), r.getCentreY() - 3.5f, 7, 7); juce::DropShadow (col.withAlpha (0.8f), 6, {}).drawForPath (g, lp); }
         g.setColour (col); g.fillEllipse (r.getX(), r.getCentreY() - 3.5f, 7, 7);
         g.setFont (tex::plainBold (9.5f).withExtraKerningFactor (0.1f));
         const auto track = proc.getTrackName();
-        g.drawText (! linked ? juce::String ("NOT LINKED TO THE MASTER")
+        g.drawText (rebelOn ? juce::String ("REBEL: THE MASTER KEEPS ITS HANDS OFF")
+                    : ! linked ? juce::String ("NOT LINKED TO THE MASTER")
                              : (justSet ? juce::String ("RELEASE SET BY THE MASTER  //  TURN IT ANY TIME")
                                         : "LINKED TO THE MASTER" + (track.isNotEmpty() ? "  //  " + track.toUpperCase() : juce::String())),
                     r.withTrimmedLeft (12).toNearestInt(), juce::Justification::centredLeft, true);
