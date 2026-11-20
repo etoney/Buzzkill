@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 # Must come BEFORE project(), or CMake ignores them: universal (Apple Silicon + Intel), macOS 11+
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "")
-project(BUZZKILL VERSION 2.3.0)
+project(DEADAIR VERSION 2.3.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,12 +16,12 @@ FetchContent_Declare(JUCE
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(JUCE)
 
-juce_add_plugin(BuzzKill
+juce_add_plugin(DeadAir
     COMPANY_NAME "Castle Danger"
-    PRODUCT_NAME "BuzzKill"
-    BUNDLE_ID com.castledanger.buzzkill
+    PRODUCT_NAME "Dead Air"
+    BUNDLE_ID com.castledanger.deadair
     PLUGIN_MANUFACTURER_CODE Cdgr
-    PLUGIN_CODE Bzk1
+    PLUGIN_CODE Dair
     FORMATS VST3 AU
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
@@ -32,17 +32,17 @@ juce_add_plugin(BuzzKill
     VST3_CATEGORIES Fx Restoration Dynamics
     AU_MAIN_TYPE kAudioUnitType_Effect)
 
-target_sources(BuzzKill PRIVATE
+target_sources(DeadAir PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp)
 
-target_compile_definitions(BuzzKill PUBLIC
+target_compile_definitions(DeadAir PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0)
 
-target_link_libraries(BuzzKill
+target_link_libraries(DeadAir
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
@@ -52,13 +52,13 @@ target_link_libraries(BuzzKill
         juce::juce_recommended_warning_flags)
 
 # Offline DSP test (no JUCE): synthetic guitar + amp noise -> before/after/removed WAVs + measurements
-add_executable(buzzkill_render test/render_test.cpp)
-target_include_directories(buzzkill_render PRIVATE Source)
+add_executable(deadair_render test/render_test.cpp)
+target_include_directories(deadair_render PRIVATE Source)
 
 # Headless GUI snapshot + state checks (CI renders the editor to gui.png for review)
-juce_add_console_app(BuzzKillSnapshot PRODUCT_NAME "BuzzKillSnapshot")
-target_sources(BuzzKillSnapshot PRIVATE test/snapshot.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp)
-target_compile_definitions(BuzzKillSnapshot PRIVATE
+juce_add_console_app(DeadAirSnapshot PRODUCT_NAME "DeadAirSnapshot")
+target_sources(DeadAirSnapshot PRIVATE test/snapshot.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp)
+target_compile_definitions(DeadAirSnapshot PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_ALSA=0 JUCE_JACK=0
     "JucePlugin_VersionString=\"${PROJECT_VERSION}\"")
-target_link_libraries(BuzzKillSnapshot PRIVATE juce::juce_audio_utils juce::juce_dsp PUBLIC juce::juce_recommended_config_flags)
+target_link_libraries(DeadAirSnapshot PRIVATE juce::juce_audio_utils juce::juce_dsp PUBLIC juce::juce_recommended_config_flags)

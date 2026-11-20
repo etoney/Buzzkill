@@ -1,13 +1,13 @@
-// Offline test for the BuzzKill engine (no JUCE), modelled on real use: a DI guitar (with pickup
-// hum and hiss) through a high-gain amp sim, then BuzzKill right after the sim.
-//   buzzkill_render out_dir [release 0..1] [amp gain]
+// Offline test for the Dead Air engine (no JUCE), modelled on real use: a DI guitar (with pickup
+// hum and hiss) through a high-gain amp sim, then Dead Air right after the sim.
+//   deadair_render out_dir [release 0..1] [amp gain]
 // Measures:
 //   - palm-mute noise leak: how long noise is heard after each chug has died into the noise
 //   - sustain: whether ringing notes are cut before they actually reach the noise floor
 //   - transparency: any gain change while you are clearly playing (should be none)
 //   - attacks: level of the first 5 ms of each chug vs the input (should be 0 dB)
 // Writes before.wav, after.wav, removed.wav, clean.wav.
-#include "BuzzKillEngine.h"
+#include "DeadAirEngine.h"
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>

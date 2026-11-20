@@ -8,7 +8,7 @@
 
 using APVTS = juce::AudioProcessorValueTreeState;
 
-APVTS::ParameterLayout BuzzKillProcessor::createLayout()
+APVTS::ParameterLayout DeadAirProcessor::createLayout()
 {
     using namespace juce;
     std::vector<std::unique_ptr<RangedAudioParameter>> ps;
@@ -35,16 +35,16 @@ APVTS::ParameterLayout BuzzKillProcessor::createLayout()
     return { ps.begin(), ps.end() };
 }
 
-BuzzKillProcessor::BuzzKillProcessor()
+DeadAirProcessor::DeadAirProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "BUZZKILL", createLayout())
+      apvts (*this, nullptr, "DEADAIR", createLayout())
 {
     releaseParam = apvts.getRawParameterValue ("release");
     listenParam = apvts.getRawParameterValue ("listen");
 
-    link = std::make_unique<Link> ("buzzkill", "BuzzKill", JucePlugin_VersionString, apvts, juce::StringArray { "release", "listen" });
+    link = std::make_unique<Link> ("buzzkill", "Dead Air", JucePlugin_VersionString, apvts, juce::StringArray { "release", "listen" });
     link->onOtherMessage = [this] (const juce::var& m)
     {
         if (m.getProperty ("type", "").toString() == "measure-reset") statsReset = true;   // The Master's RESET: start counting again
@@ -64,21 +64,21 @@ BuzzKillProcessor::BuzzKillProcessor()
     };
 }
 
-bool BuzzKillProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+bool DeadAirProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
     const auto out = layouts.getMainOutputChannelSet();
     if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo()) return false;
     return layouts.getMainInputChannelSet() == out;
 }
 
-void BuzzKillProcessor::prepareToPlay (double sampleRate, int)
+void DeadAirProcessor::prepareToPlay (double sampleRate, int)
 {
     currentRate = sampleRate;
     engine.prepare (sampleRate);          // 5 ms look-ahead: fine to play through live
     setLatencySamples (engine.latencySamples());
 }
 
-void BuzzKillProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void DeadAirProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
     const int n = buffer.getNumSamples();
@@ -106,18 +106,18 @@ void BuzzKillProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     if (eng.tele.state.load() == 1) { playPow = playPow.load() + inPow * n; playSamples += n; }
 }
 
-void BuzzKillProcessor::getStateInformation (juce::MemoryBlock& destData)
+void DeadAirProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     if (auto xml = apvts.copyState().createXml()) copyXmlToBinary (*xml, destData);
 }
 
-void BuzzKillProcessor::setStateInformation (const void* data, int sizeInBytes)
+void DeadAirProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (apvts.state.getType()))
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
 }
 
-juce::AudioProcessorEditor* BuzzKillProcessor::createEditor() { return new BuzzKillEditor (*this); }
+juce::AudioProcessorEditor* DeadAirProcessor::createEditor() { return new DeadAirEditor (*this); }
 
-juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new BuzzKillProcessor(); }
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new DeadAirProcessor(); }

@@ -3,10 +3,10 @@
 #include "PluginProcessor.h"
 #include "Rebel.h"
 
-class BuzzKillLookAndFeel : public juce::LookAndFeel_V4
+class DeadAirLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
-    BuzzKillLookAndFeel();
+    DeadAirLookAndFeel();
     void drawRotarySlider (juce::Graphics&, int x, int y, int w, int h, float pos,
                            float startAngle, float endAngle, juce::Slider&) override;
     void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour&, bool hi, bool down) override;
@@ -19,7 +19,7 @@ public:
 class SpectrumView : public juce::Component
 {
 public:
-    explicit SpectrumView (BuzzKillProcessor& p) : proc (p) {}
+    explicit SpectrumView (DeadAirProcessor& p) : proc (p) {}
     void update();
     void paint (juce::Graphics&) override;
 private:
@@ -27,7 +27,7 @@ private:
     float yForDb (float db) const;
     juce::Path makeCurve (const std::vector<float>& db, bool closed) const;
     juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced (8.0f, 6.0f).withTrimmedBottom (14.0f); }
-    BuzzKillProcessor& proc;
+    DeadAirProcessor& proc;
     std::vector<float> in, noise, out;
     float binHz = 0;
     int bins = 0;
@@ -42,11 +42,11 @@ public:
     float phase = 0;
 };
 
-class BuzzKillEditor : public juce::AudioProcessorEditor, private juce::Timer
+class DeadAirEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
-    explicit BuzzKillEditor (BuzzKillProcessor&);
-    ~BuzzKillEditor() override;
+    explicit DeadAirEditor (DeadAirProcessor&);
+    ~DeadAirEditor() override;
     void paint (juce::Graphics&) override;
     void resized() override;
     void refreshNow() { timerCallback(); }   // used by the headless snapshot test
@@ -58,8 +58,8 @@ private:
     void buildBackdrop();
     void drawStatus (juce::Graphics&, juce::Rectangle<int>);
 
-    BuzzKillProcessor& proc;
-    BuzzKillLookAndFeel lnf;
+    DeadAirProcessor& proc;
+    DeadAirLookAndFeel lnf;
     SpectrumView spectrum;
     BoltMedallion bolt;
     juce::Slider release { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox };
@@ -75,6 +75,6 @@ private:
     float removedSmooth = 0, pulse = 0, flicker = 0;
     int linkTick = 0, lastState = -1;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BuzzKillEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DeadAirEditor)
     cdrebel::Button rebel { proc.apvts };   // REBEL: The Master hands off
 };

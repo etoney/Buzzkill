@@ -166,7 +166,7 @@ static void drawCastleCrest (juce::Graphics& g, juce::Rectangle<float> r)
         g.fillRect (X (p.x) - w * 0.018f, Y (p.y), w * 0.036f, h * 0.07f);
 }
 //==============================================================================
-BuzzKillLookAndFeel::BuzzKillLookAndFeel()
+DeadAirLookAndFeel::DeadAirLookAndFeel()
 {
     setColour (juce::Slider::textBoxTextColourId, pal::paintDim);
     setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
@@ -202,7 +202,7 @@ BuzzKillLookAndFeel::BuzzKillLookAndFeel()
 }
 
 
-void BuzzKillLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour&, bool hi, bool down)
+void DeadAirLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour&, bool hi, bool down)
 {
     auto r = b.getLocalBounds().toFloat().reduced (0.5f);
     g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillRoundedRectangle (r.translated (1.0f, 1.5f), 3.0f);
@@ -213,7 +213,7 @@ void BuzzKillLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button&
 }
 
 
-void BuzzKillLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h, float pos,
+void DeadAirLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h, float pos,
                                         float startAngle, float endAngle, juce::Slider& s)
 {
     auto b = juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h).reduced (3.0f);
@@ -279,7 +279,7 @@ void BuzzKillLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int
 }
 
 // toggles: an indicator lamp + stencilled label on a rusty plate
-void BuzzKillLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& b, bool hi, bool)
+void DeadAirLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& b, bool hi, bool)
 {
     auto r = b.getLocalBounds().toFloat().reduced (1.0f);
     const bool on = b.getToggleState();
@@ -308,7 +308,7 @@ void BuzzKillLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButto
     g.drawText (b.getButtonText(), r.withTrimmedLeft (r.getHeight() * 1.0f).withTrimmedRight (6), juce::Justification::centredLeft);
 }
 
-void BuzzKillLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& b, bool hi, bool)
+void DeadAirLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& b, bool hi, bool)
 {
     g.setFont (tex::stencil (juce::jmin (16.0f, (float) b.getHeight() * 0.58f)).withExtraKerningFactor (0.12f));
     g.setColour (hi ? juce::Colours::white : pal::paint);
@@ -473,7 +473,7 @@ void SpectrumView::paint (juce::Graphics& g)
 }
 
 //==============================================================================
-BuzzKillEditor::BuzzKillEditor (BuzzKillProcessor& p)
+DeadAirEditor::DeadAirEditor (DeadAirProcessor& p)
     : AudioProcessorEditor (&p), proc (p), spectrum (p)
 {
     setLookAndFeel (&lnf);
@@ -494,7 +494,7 @@ BuzzKillEditor::BuzzKillEditor (BuzzKillProcessor& p)
 
     addAndMakeVisible (listenButton);
     listenButton.setName ("listen");
-    listenButton.setTooltip ("Hear only what BuzzKill takes out. Turn it off before you bounce!");
+    listenButton.setTooltip ("Hear only what Dead Air takes out. Turn it off before you bounce!");
     listenAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, "listen", listenButton);
 
     addAndMakeVisible (rebel);
@@ -502,13 +502,13 @@ BuzzKillEditor::BuzzKillEditor (BuzzKillProcessor& p)
     startTimerHz (30);
 }
 
-BuzzKillEditor::~BuzzKillEditor()
+DeadAirEditor::~DeadAirEditor()
 {
     stopTimer();
     setLookAndFeel (nullptr);
 }
 
-void BuzzKillEditor::resized()
+void DeadAirEditor::resized()
 {
     plates.clear();
     bolt.setBounds (18, 12, 90, 90);
@@ -536,7 +536,7 @@ void BuzzKillEditor::resized()
 }
 
 //==============================================================================
-void BuzzKillEditor::buildBackdrop()
+void DeadAirEditor::buildBackdrop()
 {
     const float scale = 2.0f;
     const int W = getWidth(), H = getHeight();
@@ -688,7 +688,7 @@ void BuzzKillEditor::buildBackdrop()
                                     220, 14, tex::plainBold (10.5f), pal::paintDim, juce::Justification::centredLeft, scale, 0.15f, 99, 0.14f);
     g.drawImage (sub, juce::Rectangle<float> (124.0f, 70.0f, 220.0f, 14.0f));
 
-    // the logo: BUZZ in cream, KILL in rusty red, knocked down a little
+    // the logo: DEAD in cream, AIR in rusty red, knocked down a little
     {
         const int lw = 420, lh = 64;
         logoImage = juce::Image (juce::Image::ARGB, (int) (lw * scale), (int) (lh * scale), true);
@@ -696,33 +696,33 @@ void BuzzKillEditor::buildBackdrop()
         lg.addTransform (juce::AffineTransform::scale (scale));
         auto f = tex::stencil (60.0f).withExtraKerningFactor (0.05f);
         {
-            juce::GlyphArrangement all; all.addLineOfText (f, "BUZZKILL", 0, 0);
+            juce::GlyphArrangement all; all.addLineOfText (f, "DEAD AIR", 0, 0);
             const float wAll = all.getBoundingBox (0, -1, true).getWidth();
             if (wAll > (float) lw - 8.0f) f = f.withHeight (60.0f * ((float) lw - 8.0f) / wAll);
         }
         lg.setFont (f);
         lg.setColour (pal::paint);
-        lg.drawText ("BUZZ", 0, -3, lw, lh, juce::Justification::centredLeft, false);
-        juce::GlyphArrangement ga; ga.addLineOfText (f, "BUZZ", 0, 0);
-        const float bx = ga.getBoundingBox (0, -1, true).getWidth() + 2.0f;
+        lg.drawText ("DEAD", 0, -3, lw, lh, juce::Justification::centredLeft, false);
+        juce::GlyphArrangement ga; ga.addLineOfText (f, "DEAD", 0, 0);
+        const float bx = ga.getBoundingBox (0, -1, true).getWidth() + f.getHeight() * 0.2f;   // a word space
         {
             juce::Graphics::ScopedSaveState ss (lg);
             lg.addTransform (juce::AffineTransform::rotation (0.05f, bx, (float) lh * 0.5f).translated (0.0f, 4.0f));
             lg.setColour (pal::signal);
-            lg.drawText ("KILL", (int) bx, 0, lw - (int) bx, lh, juce::Justification::centredLeft, false);
+            lg.drawText ("AIR", (int) bx, 0, lw - (int) bx, lh, juce::Justification::centredLeft, false);
         }
         tex::distress (logoImage, scale, 0.3f, 667);
     }
 }
 
 //==============================================================================
-void BuzzKillEditor::drawStatus (juce::Graphics& g, juce::Rectangle<int> area)
+void DeadAirEditor::drawStatus (juce::Graphics& g, juce::Rectangle<int> area)
 {
     const auto& t = proc.telemetry();
     const int st = juce::jlimit (0, 3, t.state.load());
     auto r = area.reduced (18, 0).withTrimmedTop (28).withTrimmedBottom (12);
 
-    const char* names[] = { "LISTENING", "PLAYING", "LETTING GO", "BUZZ KILLED" };
+    const char* names[] = { "LISTENING", "PLAYING", "LETTING GO", "DEAD AIR" };
     const char* lines[] = { "Learning the noise after your amp sim. Leave a second of quiet.",
                             "Gate open: your guitar passes untouched.",
                             "Your note has faded into the noise; closing gently.",
@@ -776,7 +776,7 @@ void BuzzKillEditor::drawStatus (juce::Graphics& g, juce::Rectangle<int> area)
     row ("NOISE CUT", cut, pal::hazard);
 }
 
-void BuzzKillEditor::paint (juce::Graphics& g)
+void DeadAirEditor::paint (juce::Graphics& g)
 {
     if (backdrop.isValid()) g.drawImage (backdrop, getLocalBounds().toFloat());
     else g.fillAll (pal::ironDark);
@@ -832,7 +832,7 @@ void BuzzKillEditor::paint (juce::Graphics& g)
     }
 }
 
-void BuzzKillEditor::timerCallback()
+void DeadAirEditor::timerCallback()
 {
     spectrum.update();
     const auto& t = proc.telemetry();

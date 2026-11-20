@@ -1,4 +1,4 @@
-# BuzzKill: dynamic guitar noise gate
+# Dead Air: dynamic guitar noise gate
 
 A zero-setup dynamic noise gate for electric guitar, made to sit right after an amp sim in a DAW (VST3 / AU, built with JUCE 8.0.15) by Castle Danger Music Company. While you play it does nothing. When you stop, it closes as soon as the level reaches the noise floor: within milliseconds for palm mutes and chokes, and only after the last harmonic is gone for notes you let ring.
 
@@ -23,14 +23,14 @@ Controls (all optional): **Release** (Natural ↔ Tight, how gently it closes af
 - Guitar volume back up with nobody playing: silent again ~3 s later on its own, ~0.5 s with Relearn
 - CPU: ~1% of one core at 48 kHz
 
-Run it yourself: `cmake --build build --target buzzkill_render && ./build/buzzkill_render out_dir [release 0..1] [amp gain]` (writes before/after/removed/clean WAVs; `DA_VOLUME=1` adds the volume-knob scenario).
+Run it yourself: `cmake --build build --target deadair_render && ./build/deadair_render out_dir [release 0..1] [amp gain]` (writes before/after/removed/clean WAVs; `DA_VOLUME=1` adds the volume-knob scenario).
 
 ## Building
 Requirements: CMake 3.22+, Git, and a C++17 compiler. JUCE 8.0.15 is downloaded automatically (same version as DREAD).
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release --target BuzzKill_VST3   # add BuzzKill_AU on macOS
+cmake --build build --config Release --target DeadAir_VST3   # add DeadAir_AU on macOS
 ```
 
 **No compiler?** Push to GitHub. `.github/workflows/build.yml` builds macOS and Windows and attaches them as artifacts on the Actions tab. It also renders the GUI to the `screenshots` branch.

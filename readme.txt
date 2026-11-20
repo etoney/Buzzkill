@@ -1,19 +1,19 @@
 ===============================================================================
   INSTALLING AN UNSIGNED VST3 / AU PLUGIN BY HAND
-  (example plugin: BuzzKill by Castle Danger)
+  (example plugin: Dead Air by Castle Danger)
 ===============================================================================
 
 This guide covers installing plugin files by hand (no installer), including
-plugins that are not signed or notarized by Apple. Examples use BuzzKill, but the
+plugins that are not signed or notarized by Apple. Examples use Dead Air, but the
 steps work for any .vst3 or .component file.
 
 For what every knob and button does, see controls.txt (included in this
 download).
 
-  - VST3 plugin file:  BuzzKill.vst3       (macOS and Windows)
-  - AU plugin file:    BuzzKill.component  (macOS only)
+  - VST3 plugin file:  Dead Air.vst3       (macOS and Windows)
+  - AU plugin file:    Dead Air.component  (macOS only)
 
-On macOS, BuzzKill.vst3 and BuzzKill.component look like single files, but they are
+On macOS, Dead Air.vst3 and Dead Air.component look like single files, but they are
 really folders ("bundles"). Always move the whole thing. Never open it and copy
 what's inside.
 
@@ -43,11 +43,11 @@ CONTENTS
 
   b. Unzip the download. Double-click the .zip. You should end up with a
      folder holding something like:
-         VST3/BuzzKill.vst3
-         AU/BuzzKill.component        (macOS build only)
+         VST3/Dead Air.vst3
+         AU/Dead Air.component        (macOS build only)
 
      If you've downloaded more than once, your browser may have named the newer
-     file "BuzzKill-macOS (1).zip". Make sure you unzip the NEWEST one.
+     file "Dead Air-macOS (1).zip". Make sure you unzip the NEWEST one.
 
   c. Don't install the plugin from a folder it can't run from, like a
      disk image or the inside of a zip. Copy it into the folders below.
@@ -132,11 +132,11 @@ and "Components" (capital C).
   Finder:
       1. Open ~/Library/Audio/Plug-Ins/VST3/ (create it first if needed,
          see section 3).
-      2. Drag BuzzKill.vst3 from the unzipped download into the VST3 folder.
+      2. Drag Dead Air.vst3 from the unzipped download into the VST3 folder.
          If asked about replacing an existing item, choose Replace.
 
   Terminal (replace the path with wherever you unzipped the download):
-      cp -R ~/Downloads/BuzzKill-macOS/VST3/BuzzKill.vst3 ~/Library/Audio/Plug-Ins/VST3/
+      cp -R ~/Downloads/Dead Air-macOS/VST3/Dead Air.vst3 ~/Library/Audio/Plug-Ins/VST3/
 
   Then do section 6 (unblock).
 
@@ -150,10 +150,10 @@ and others can use either the AU or the VST3.
   Finder:
       1. Open ~/Library/Audio/Plug-Ins/Components/ (create it first if
          needed, see section 3).
-      2. Drag BuzzKill.component into the Components folder.
+      2. Drag Dead Air.component into the Components folder.
 
   Terminal:
-      cp -R ~/Downloads/BuzzKill-macOS/AU/BuzzKill.component ~/Library/Audio/Plug-Ins/Components/
+      cp -R ~/Downloads/Dead Air-macOS/AU/Dead Air.component ~/Library/Audio/Plug-Ins/Components/
 
   IMPORTANT: .component files must sit DIRECTLY inside the Components folder.
   macOS does not look in subfolders for AU plugins (see section 7).
@@ -172,7 +172,7 @@ message. The fix is to remove the quarantine flag.
   1. Open Terminal.
   2. Paste this and press Return (it's one line):
 
-     xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/BuzzKill.vst3 ~/Library/Audio/Plug-Ins/Components/BuzzKill.component
+     xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/Dead Air.vst3 ~/Library/Audio/Plug-Ins/Components/Dead Air.component
 
      - No output means it worked.
      - If you only installed one format, leave the other path out.
@@ -183,17 +183,17 @@ message. The fix is to remove the quarantine flag.
        window to paste its exact path.
 
   3. To check it worked:
-         xattr ~/Library/Audio/Plug-Ins/VST3/BuzzKill.vst3
+         xattr ~/Library/Audio/Plug-Ins/VST3/Dead Air.vst3
      If "com.apple.quarantine" isn't listed, the plugin is unblocked.
 
   If macOS still blocks it:
      - Open System Settings > Privacy & Security, scroll down, and if a
-       message about BuzzKill appears, click "Open Anyway" / "Allow Anyway".
+       message about Dead Air appears, click "Open Anyway" / "Allow Anyway".
      - On Apple Silicon Macs, a plugin with no signature at all can be
        refused. You can apply a free "ad-hoc" signature yourself:
 
-       codesign --force --deep -s - ~/Library/Audio/Plug-Ins/VST3/BuzzKill.vst3
-       codesign --force --deep -s - ~/Library/Audio/Plug-Ins/Components/BuzzKill.component
+       codesign --force --deep -s - ~/Library/Audio/Plug-Ins/VST3/Dead Air.vst3
+       codesign --force --deep -s - ~/Library/Audio/Plug-Ins/Components/Dead Air.component
 
   Repeat this section EVERY time you install a newly downloaded version.
 
@@ -203,26 +203,26 @@ message. The fix is to remove the quarantine flag.
 -------------------------------------------------------------------------------
 You can put VST3 plugins in subfolders, for example by company:
 
-      ~/Library/Audio/Plug-Ins/VST3/Castle Danger/BuzzKill.vst3      (macOS)
-      C:\Program Files\Common Files\VST3\Castle Danger\BuzzKill.vst3  (Windows)
+      ~/Library/Audio/Plug-Ins/VST3/Castle Danger/Dead Air.vst3      (macOS)
+      C:\Program Files\Common Files\VST3\Castle Danger\Dead Air.vst3  (Windows)
 
   - VST3: subfolders are fine. DAWs search the VST3 folder AND every
     folder inside it.
   - AU (.component): subfolders DON'T work. macOS only loads AUs placed
     directly in the Components folder:
-        CORRECT:  ~/Library/Audio/Plug-Ins/Components/BuzzKill.component
-        WRONG:    ~/Library/Audio/Plug-Ins/Components/Castle Danger/BuzzKill.component
+        CORRECT:  ~/Library/Audio/Plug-Ins/Components/Dead Air.component
+        WRONG:    ~/Library/Audio/Plug-Ins/Components/Castle Danger/Dead Air.component
 
   To create a subfolder and install into it (macOS Terminal):
 
       mkdir -p "$HOME/Library/Audio/Plug-Ins/VST3/Castle Danger"
-      cp -R ~/Downloads/BuzzKill-macOS/VST3/BuzzKill.vst3 "$HOME/Library/Audio/Plug-Ins/VST3/Castle Danger/"
-      xattr -dr com.apple.quarantine "$HOME/Library/Audio/Plug-Ins/VST3/Castle Danger/BuzzKill.vst3"
+      cp -R ~/Downloads/Dead Air-macOS/VST3/Dead Air.vst3 "$HOME/Library/Audio/Plug-Ins/VST3/Castle Danger/"
+      xattr -dr com.apple.quarantine "$HOME/Library/Audio/Plug-Ins/VST3/Castle Danger/Dead Air.vst3"
 
   Keep the quotes when a folder name has spaces in it.
 
   In Finder: open the VST3 folder, right-click > New Folder, name it (e.g.
-  "Castle Danger"), and drag BuzzKill.vst3 into it.
+  "Castle Danger"), and drag Dead Air.vst3 into it.
 
   Don't put a plugin inside ANOTHER plugin's bundle, and don't nest the
   plugin inside a folder that also ends in ".vst3".
@@ -236,7 +236,7 @@ You can put VST3 plugins in subfolders, for example by company:
 -------------------------------------------------------------------------------
 8. WINDOWS: INSTALLING THE VST3
 -------------------------------------------------------------------------------
-Windows has no AU format. Use BuzzKill.vst3.
+Windows has no AU format. Use Dead Air.vst3.
 
   Standard location:
       C:\Program Files\Common Files\VST3\
@@ -251,12 +251,12 @@ Windows has no AU format. Use BuzzKill.vst3.
          mkdir "C:\Program Files\Common Files\VST3"
 
   Install:
-      1. Copy BuzzKill.vst3 from the unzipped download into
+      1. Copy Dead Air.vst3 from the unzipped download into
          C:\Program Files\Common Files\VST3\
          (or into a subfolder such as ...\VST3\Castle Danger\)
       2. Approve the administrator prompt.
 
-  Note: BuzzKill.vst3 may be a single file or a folder on Windows. Either way,
+  Note: Dead Air.vst3 may be a single file or a folder on Windows. Either way,
   copy it as-is.
 
   Unsigned plugins on Windows:
@@ -270,8 +270,8 @@ Windows has no AU format. Use BuzzKill.vst3.
 FENDER STUDIO PRO
   1. Start Studio Pro after installing. It scans for new plugins on startup.
   2. Open the Browse panel > Effects. Look under "Castle Danger" or
-     search for "BuzzKill".
-  3. Drag BuzzKill onto your guitar track (put it FIRST in the chain, before
+     search for "Dead Air".
+  3. Drag Dead Air onto your guitar track (put it FIRST in the chain, before
      any reverb or delay, so it hears the amp noise on its own).
 
   If it doesn't appear:
@@ -280,12 +280,12 @@ FENDER STUDIO PRO
           Windows: Studio Pro menu > Options > Locations > VST Plug-ins
      b. Make sure your VST3 folder is listed. If not, click Add, choose
         the folder (or drag it in from Finder/Explorer), and click Apply.
-     c. If BuzzKill ever crashed or failed to load, Studio Pro may have put it
+     c. If Dead Air ever crashed or failed to load, Studio Pro may have put it
         on its blocklist. Click "Reset Blocklist" on the same page.
      d. Restart Studio Pro.
 
 LOGIC PRO / GARAGEBAND (AU only)
-  - Logic Pro > Settings > Plug-in Manager. Find BuzzKill, select it,
+  - Logic Pro > Settings > Plug-in Manager. Find Dead Air, select it,
     click "Reset & Rescan Selection".
 
 ABLETON LIVE
@@ -311,22 +311,22 @@ unless you clear things out:
   4. Install the new files (sections 4 and 5, or 8).
   5. macOS: unblock again (section 6).
   6. Check which version is installed (macOS):
-        defaults read ~/Library/Audio/Plug-Ins/VST3/BuzzKill.vst3/Contents/Info.plist CFBundleShortVersionString
+        defaults read ~/Library/Audio/Plug-Ins/VST3/Dead Air.vst3/Contents/Info.plist CFBundleShortVersionString
   7. Start your DAW and load the plugin on a NEW track. Existing songs may
      have saved the old window size.
-     BuzzKill shows its version (e.g. "V1.0.0") under its name.
+     Dead Air shows its version (e.g. "V1.0.0") under its name.
 
 
 -------------------------------------------------------------------------------
 11. UNINSTALLING
 -------------------------------------------------------------------------------
   macOS (Terminal):
-      rm -rf ~/Library/Audio/Plug-Ins/VST3/BuzzKill.vst3
-      rm -rf ~/Library/Audio/Plug-Ins/Components/BuzzKill.component
+      rm -rf ~/Library/Audio/Plug-Ins/VST3/Dead Air.vst3
+      rm -rf ~/Library/Audio/Plug-Ins/Components/Dead Air.component
       (If you used a subfolder, remove it from there instead.)
 
   Windows:
-      Delete C:\Program Files\Common Files\VST3\BuzzKill.vst3
+      Delete C:\Program Files\Common Files\VST3\Dead Air.vst3
       (approve the administrator prompt).
 
 
@@ -335,15 +335,15 @@ unless you clear things out:
 -------------------------------------------------------------------------------
   Plugin doesn't show up at all
     - Check the folder name: exactly "VST3" or "Components".
-    - Check the file is BuzzKill.vst3 itself, not a folder CONTAINING it
-      (e.g. not VST3/VST3/BuzzKill.vst3 left over from the zip). A subfolder
+    - Check the file is Dead Air.vst3 itself, not a folder CONTAINING it
+      (e.g. not VST3/VST3/Dead Air.vst3 left over from the zip). A subfolder
       is fine for VST3 (section 7), but the .vst3 must sit inside it
       unchanged.
     - AU in a subfolder of Components? Move it directly into Components.
     - macOS: run the quarantine command (section 6).
     - Restart the DAW, or rescan/reset the blocklist (section 9).
 
-  "BuzzKill is damaged and can't be opened" / "developer cannot be verified"
+  "Dead Air is damaged and can't be opened" / "developer cannot be verified"
     - This is Gatekeeper blocking an unsigned plugin. Run the commands in
       section 6 (xattr, then codesign if needed).
 

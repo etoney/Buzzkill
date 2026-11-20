@@ -335,7 +335,7 @@ inline juce::var paramsToVar (APVTS& apvts, const juce::StringArray& ids)
 }
 
 //==============================================================================
-// Everything a linked plugin (Dominatrix, Chop Shop, The Servant...) needs: answers The
+// Everything a linked plugin (Dominatrix, Cutthroat, The Servant...) needs: answers The
 // Master, reports its controls + level fingerprints 4 times a second, and applies the
 // settings The Master sends (exactly as if the knobs were turned: the host sees it,
 // undo and automation work).

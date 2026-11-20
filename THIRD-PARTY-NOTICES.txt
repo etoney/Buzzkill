@@ -1,14 +1,14 @@
 ===============================================================================
-  BuzzKill - THIRD-PARTY NOTICES
+  Dead Air - THIRD-PARTY NOTICES
 ===============================================================================
 
-BuzzKill includes the following third-party software. Each component is used
+Dead Air includes the following third-party software. Each component is used
 under its own license, reproduced or referenced below.
 
 -------------------------------------------------------------------------------
 1. JUCE
 -------------------------------------------------------------------------------
-BuzzKill is built with the JUCE framework (https://juce.com), copyright Raw
+Dead Air is built with the JUCE framework (https://juce.com), copyright Raw
 Material Software Limited, used under the JUCE 8 End User Licence Agreement
 (https://juce.com/legal/juce-8-licence/).
 
@@ -16,7 +16,7 @@ Material Software Limited, used under the JUCE 8 End User Licence Agreement
 2. Steinberg VST 3 SDK
 -------------------------------------------------------------------------------
 VST is a registered trademark of Steinberg Media Technologies GmbH.
-BuzzKill's VST3 plugin uses the VST 3 SDK. Its license notice:
+Dead Air's VST3 plugin uses the VST 3 SDK. Its license notice:
 
 //-----------------------------------------------------------------------------
 MIT License

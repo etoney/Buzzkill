@@ -1,13 +1,13 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
-#include "BuzzKillEngine.h"
+#include "DeadAirEngine.h"
 #include "CDLink.h"
 
-class BuzzKillProcessor : public juce::AudioProcessor
+class DeadAirProcessor : public juce::AudioProcessor
 {
 public:
-    BuzzKillProcessor();
-    ~BuzzKillProcessor() override = default;
+    DeadAirProcessor();
+    ~DeadAirProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -18,7 +18,7 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "BuzzKill"; }
+    const juce::String getName() const override { return "Dead Air"; }
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
@@ -61,5 +61,5 @@ private:
     std::atomic<juce::int64> playSamples { 0 };
     std::atomic<bool> statsReset { false };
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BuzzKillProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DeadAirProcessor)
 };

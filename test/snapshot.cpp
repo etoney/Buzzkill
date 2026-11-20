@@ -22,12 +22,12 @@ int main (int argc, char** argv)
     auto check = [&] (bool ok, const char* what) { std::printf ("[%s] %s\n", ok ? "PASS" : "FAIL", what); if (! ok) ++failures; };
     {
         const double sr = 48000.0; const int bs = 512;
-        BuzzKillProcessor proc;
+        DeadAirProcessor proc;
         proc.setPlayConfigDetails (2, 2, sr, bs);
         proc.prepareToPlay (sr, bs);
         check (proc.getLatencySamples() == 240, "reports 240 samples (5 ms look-ahead) latency at 48 kHz");
 
-        std::unique_ptr<BuzzKillEditor> ed (dynamic_cast<BuzzKillEditor*> (proc.createEditor()));
+        std::unique_ptr<DeadAirEditor> ed (dynamic_cast<DeadAirEditor*> (proc.createEditor()));
         juce::AudioBuffer<float> buf (2, bs);
         juce::MidiBuffer midi;
         juce::Random rnd (5);
@@ -83,14 +83,14 @@ int main (int argc, char** argv)
             }, otherBinary);
             auto pump = [] (int ms) { juce::MessageManager::getInstance()->runDispatchLoopUntil (ms); };
             for (int i = 0; i < 30 && ! master.isOnline(); ++i) pump (50);
-            run (0.5, true, false);                 // play a note: the gate is open, BuzzKill counts how loud you play
+            run (0.5, true, false);                 // play a note: the gate is open, Dead Air counts how loud you play
             pump (1600);
             const auto ex = lastStatus.getProperty ("extra", {});
             std::printf ("link: floor %.1f dB, play %.1f dB, %.2f s, learned %d\n", (double) ex.getProperty ("floorDb", 0.0), (double) ex.getProperty ("playDb", 0.0),
                          (double) ex.getProperty ("seconds", 0.0), (int) (bool) ex.getProperty ("learned", false));
             check (lastStatus.isObject() && (bool) ex.getProperty ("learned", false) && (double) ex.getProperty ("floorDb", 0.0) < -50.0
                    && (double) ex.getProperty ("playDb", -120.0) > -25.0 && (double) ex.getProperty ("seconds", 0.0) > 0.3,
-                   "BuzzKill reports its learned noise floor and how loud the guitar plays");
+                   "Dead Air reports its learned noise floor and how loud the guitar plays");
             auto set = cdlink::Endpoint::makeMessage ("set");
             auto* prm = new juce::DynamicObject();
             prm->setProperty ("release", 0.75); prm->setProperty ("listen", 0.0);

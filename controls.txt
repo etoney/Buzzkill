@@ -1,9 +1,9 @@
 ===============================================================================
-  BUZZKILL  //  CONTROLS QUICK REFERENCE
+  DEAD AIR  //  CONTROLS QUICK REFERENCE
   Castle Danger Music Company
 ===============================================================================
 
-BuzzKill needs no setup. Put it right after your amp sim (before reverb and
+Dead Air needs no setup. Put it right after your amp sim (before reverb and
 delay), press play, and let it hear a second of noise with nobody playing. It
 learns the noise by itself and works with any amp sim, at any gain.
 
@@ -15,12 +15,12 @@ HOW IT BEHAVES
                    untouched.
 
   PALM MUTES,      When you stop a note abruptly, the level crashes toward the
-  CHOKES, STOPS    noise floor far faster than any natural decay. BuzzKill sees
+  CHOKES, STOPS    noise floor far faster than any natural decay. Dead Air sees
                    that and clamps shut within a few milliseconds, so there is no
                    burst of noise before the gate closes. Then it stays shut
                    until you actually play again (a stray noise peak can't reopen it).
 
-  LETTING NOTES    When a note rings out, BuzzKill listens to its harmonics all
+  LETTING NOTES    When a note rings out, Dead Air listens to its harmonics all
   RING             the way down, even when they are below the hiss, and keeps
                    the gate open while any of them is still there. Then it
                    closes gently (the RELEASE knob sets how gently).
@@ -30,7 +30,7 @@ HOW IT BEHAVES
 
   NOISE CHANGES    If the noise changes and then holds perfectly still for about
                    2 seconds with no picking (guitar volume knob turned back up,
-                   new amp-sim preset), BuzzKill adopts the new noise by itself.
+                   new amp-sim preset), Dead Air adopts the new noise by itself.
                    RELEARN does it instantly.
 
   NON-STOP RIFFS   Noise is only ever learned from something well under (20 dB+)
@@ -45,14 +45,14 @@ THE DISPLAY
   THE AIR BETWEEN NOTES   the live spectrum:
   IN              What comes in (dim).
   OUT             What gets through (cream).
-  LEARNED NOISE   BuzzKill's picture of your amp's noise (rust-red shading).
+  LEARNED NOISE   Dead Air's picture of your amp's noise (rust-red shading).
                   The faint red lines mark 50/60 Hz mains hum and its harmonics.
 
   THE GATE plate:
   STATUS          LISTENING   learning the noise (first second or so)
                   PLAYING     gate open: your signal passes untouched
                   LETTING GO  a note has faded into the noise; closing gently
-                  BUZZ KILLED nothing playing; silence
+                  DEAD AIR    nothing playing; silence
 
   NOISE FLOOR     The learned noise level in dBFS.
   GATE            Open (and how far your signal is above the noise), closing,
@@ -77,18 +77,18 @@ CONTROLS (all optional)
       It's ready again in under a second.
 
   HEAR REMOVED
-      Plays ONLY what BuzzKill is taking out. You should hear hiss, buzz and
+      Plays ONLY what Dead Air is taking out. You should hear hiss, buzz and
       hum, and none of your guitar. Turn it off when you're done checking.
 
 
 -------------------------------------------------------------------------------
 LINKED TO THE MASTER
 -------------------------------------------------------------------------------
-  If The Master is on your master bus, BuzzKill links to it by itself (the
+  If The Master is on your master bus, Dead Air links to it by itself (the
   lamp under the logo says LINKED TO THE MASTER). Nothing to set up.
 
   In MY PLUGINS mode, The Master:
-    - reads BuzzKill's learned noise floor and how loud you play,
+    - reads Dead Air's learned noise floor and how loud you play,
     - finds which track it's on (by track name, or by matching it to The
       Servant on the same track), and
     - on APPLY sets RELEASE for the genre and the part: tight for metal and

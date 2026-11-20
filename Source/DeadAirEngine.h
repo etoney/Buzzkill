@@ -1,4 +1,4 @@
-// BUZZKILL - dynamic noise gate for electric guitar (use right after your amp sim)
+// DEAD AIR - dynamic noise gate for electric guitar (use right after your amp sim)
 // Castle Danger Music Company
 //
 // Pure C++ (no JUCE) so it can be tested offline.

@@ -1,4 +1,4 @@
-name: Build BuzzKill
+name: Build Dead Air
 
 on:
   push:
@@ -27,17 +27,17 @@ jobs:
             cmake -B build -DCMAKE_BUILD_TYPE=Release
           fi
       - name: Build
-        run: cmake --build build --config Release --target BuzzKill_VST3
+        run: cmake --build build --config Release --target DeadAir_VST3
       - name: Build AU (macOS)
         if: runner.os == 'macOS'
-        run: cmake --build build --config Release --target BuzzKill_AU
+        run: cmake --build build --config Release --target DeadAir_AU
       - name: GUI snapshot (macOS)
         if: runner.os == 'macOS'
         continue-on-error: true
         timeout-minutes: 10
         run: |
-          cmake --build build --config Release --target BuzzKillSnapshot
-          "$(find build -type f -name BuzzKillSnapshot -perm -u+x | head -1)" "$PWD/gui.png"
+          cmake --build build --config Release --target DeadAirSnapshot
+          "$(find build -type f -name DeadAirSnapshot -perm -u+x | head -1)" "$PWD/gui.png"
           mkdir -p /tmp/shot && cp gui.png gui_silent.png /tmp/shot/ 2>/dev/null || cp gui.png /tmp/shot/
           cd /tmp/shot && git init -q -b screenshots && git add -A
           git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "GUI snapshot for ${GITHUB_SHA}"
@@ -59,18 +59,18 @@ jobs:
       - name: Package release zip (same layout as the site downloads)
         shell: bash
         run: |
-          VER=$(sed -n 's/^project(BUZZKILL VERSION \([0-9.]*\)).*/\1/p' CMakeLists.txt)
+          VER=$(sed -n 's/^project(DEADAIR VERSION \([0-9.]*\)).*/\1/p' CMakeLists.txt)
           OS=$([ "$RUNNER_OS" = "macOS" ] && echo macOS || echo Windows)
-          ZIP="BuzzKill-v${VER}-${OS}.zip"
-          R=build/BuzzKill_artefacts/Release
-          mkdir -p pkg/BuzzKill/VST3
-          cp readme.txt controls.txt LICENSE.txt THIRD-PARTY-NOTICES.txt pkg/BuzzKill/
-          cp -R "$R/VST3/BuzzKill.vst3" pkg/BuzzKill/VST3/
+          ZIP="DeadAir-v${VER}-${OS}.zip"
+          R=build/DeadAir_artefacts/Release
+          mkdir -p pkg/DeadAir/VST3
+          cp readme.txt controls.txt LICENSE.txt THIRD-PARTY-NOTICES.txt pkg/DeadAir/
+          cp -R "$R/VST3/Dead Air.vst3" pkg/DeadAir/VST3/
           if [ "$OS" = "macOS" ]; then
-            mkdir -p pkg/BuzzKill/AU && cp -R "$R/AU/BuzzKill.component" pkg/BuzzKill/AU/
-            (cd pkg && ditto -c -k --sequesterRsrc --keepParent BuzzKill "../$ZIP")
+            mkdir -p pkg/DeadAir/AU && cp -R "$R/AU/Dead Air.component" pkg/DeadAir/AU/
+            (cd pkg && ditto -c -k --sequesterRsrc --keepParent DeadAir "../$ZIP")
           else
-            (cd pkg && 7z a -tzip -mx=9 "../$ZIP" BuzzKill > /dev/null)   # 7z writes forward-slash paths
+            (cd pkg && 7z a -tzip -mx=9 "../$ZIP" DeadAir > /dev/null)   # 7z writes forward-slash paths
           fi
           ls -la "$ZIP"
           BR="downloads-$(echo $OS | tr 'A-Z' 'a-z')"
@@ -79,11 +79,11 @@ jobs:
           git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" "$BR"
       - uses: actions/upload-artifact@v4
         with:
-          name: BuzzKill-${{ runner.os }}
+          name: DeadAir-${{ runner.os }}
           path: |
             readme.txt
             controls.txt
             LICENSE.txt
             THIRD-PARTY-NOTICES.txt
-            build/BuzzKill_artefacts/Release/VST3
-            build/BuzzKill_artefacts/Release/AU
+            build/DeadAir_artefacts/Release/VST3
+            build/DeadAir_artefacts/Release/AU
